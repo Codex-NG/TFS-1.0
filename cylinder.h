@@ -1,29 +1,26 @@
-//////////////////////////////////////////////////////////////////////
-// OpenTibia - an opensource roleplaying game
-//////////////////////////////////////////////////////////////////////
-//
-//////////////////////////////////////////////////////////////////////
-// This program is free software; you can redistribute it and/or
-// modify it under the terms of the GNU General Public License
-// as published by the Free Software Foundation; either version 2
-// of the License, or (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program; if not, write to the Free Software Foundation,
-// Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-//////////////////////////////////////////////////////////////////////
+/**
+ * The Forgotten Server - a free and open-source MMORPG server emulator
+ * Copyright (C) 2014  Mark Samman <mark.samman@gmail.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ */
 
-#ifndef __OTSERV_CYLINDER_H__
-#define __OTSERV_CYLINDER_H__
+#ifndef FS_CYLINDER_H_54BBCEB2A5B7415DAD837E4D58115150
+#define FS_CYLINDER_H_54BBCEB2A5B7415DAD837E4D58115150
 
-#include <map>
-
-#include "definitions.h"
+#include "enums.h"
 #include "thing.h"
 
 class Item;
@@ -31,8 +28,7 @@ class Creature;
 
 #define INDEX_WHEREEVER -1
 
-enum cylinderflags_t
-{
+enum cylinderflags_t {
 	FLAG_NOLIMIT = 1,		//Bypass limits like capacity/container limits, blocking items/creatures etc.
 	FLAG_IGNOREBLOCKITEM = 2,	//Bypass moveable blocking item checks
 	FLAG_IGNOREBLOCKCREATURE = 4,	//Bypass creature checks
@@ -43,8 +39,7 @@ enum cylinderflags_t
 	FLAG_IGNOREAUTOSTACK = 128    //__queryDestination will not try to stack items together
 };
 
-enum cylinderlink_t
-{
+enum cylinderlink_t {
 	LINK_OWNER,
 	LINK_PARENT,
 	LINK_TOPPARENT,
@@ -62,10 +57,11 @@ class Cylinder : virtual public Thing
 		  * \param count is the amount that we want to move/add
 		  * \param flags if FLAG_CHILDISOWNER if set the query is from a child-cylinder (check cap etc.)
 			* if FLAG_NOLIMIT is set blocking items/container limits is ignored
+		  * \param actor the creature trying to add the thing
 		  * \returns ReturnValue holds the return value
 		  */
-		virtual ReturnValue __queryAdd(int32_t index, const Thing* Item, uint32_t count,
-			uint32_t flags) const = 0;
+		virtual ReturnValue __queryAdd(int32_t index, const Thing* thing, uint32_t count,
+		                               uint32_t flags, Creature* actor = nullptr) const = 0;
 
 		/**
 		  * Query the cylinder how much it can accept
@@ -78,7 +74,7 @@ class Cylinder : virtual public Thing
 		  * \returns ReturnValue holds the return value
 		  */
 		virtual ReturnValue __queryMaxCount(int32_t index, const Thing* thing, uint32_t count, uint32_t& maxQueryCount,
-			uint32_t flags) const = 0;
+		                                    uint32_t flags) const = 0;
 
 		/**
 		  * Query if the cylinder can remove an object
@@ -100,7 +96,7 @@ class Cylinder : virtual public Thing
 		  * \returns Cylinder returns the destination cylinder
 		  */
 		virtual Cylinder* __queryDestination(int32_t& index, const Thing* thing, Item** destItem,
-			uint32_t& flags) = 0;
+		                                     uint32_t& flags) = 0;
 
 		/**
 		  * Add the object to the cylinder
@@ -175,15 +171,15 @@ class Cylinder : virtual public Thing
 
 		/**
 		  * Gets the object based on index
-		  * \returns the object, returns NULL if not found
+		  * \returns the object, returns nullptr if not found
 		  */
-		virtual Thing* __getThing(uint32_t index) const;
+		virtual Thing* __getThing(size_t index) const;
 
 		/**
 		  * Get the amount of items of a certain type
 		  * \param itemId is the item type to the get the count of
 		  * \param subType is the extra type an item can have such as charges/fluidtype, -1 means not used
-		  * \param returns the amount of items of the asked item type
+		  * \returns the amount of items of the asked item type
 		  */
 		virtual uint32_t __getItemTypeCount(uint16_t itemId, int32_t subType = -1) const;
 
@@ -215,29 +211,41 @@ class VirtualCylinder : public Cylinder
 	public:
 		static VirtualCylinder* virtualCylinder;
 
-		virtual ReturnValue __queryAdd(int32_t index, const Thing* thing, uint32_t count,
-			uint32_t flags) const {return RET_NOTPOSSIBLE;}
-		virtual ReturnValue __queryMaxCount(int32_t index, const Thing* thing, uint32_t count,
-			uint32_t& maxQueryCount, uint32_t flags) const {return RET_NOTPOSSIBLE;}
-		virtual ReturnValue __queryRemove(const Thing* thing, uint32_t count, uint32_t flags) const {return RET_NOTPOSSIBLE;}
-		virtual Cylinder* __queryDestination(int32_t& index, const Thing* thing, Item** destItem,
-			uint32_t& flags) {return NULL;}
+		virtual ReturnValue __queryAdd(int32_t, const Thing*, uint32_t, uint32_t, Creature* = nullptr) const {
+			return RET_NOTPOSSIBLE;
+		}
+		virtual ReturnValue __queryMaxCount(int32_t, const Thing*, uint32_t, uint32_t&, uint32_t) const {
+			return RET_NOTPOSSIBLE;
+		}
+		virtual ReturnValue __queryRemove(const Thing*, uint32_t, uint32_t) const {
+			return RET_NOTPOSSIBLE;
+		}
+		virtual Cylinder* __queryDestination(int32_t&, const Thing*, Item**, uint32_t&) {
+			return nullptr;
+		}
 
-		virtual void __addThing(Thing* thing) {}
-		virtual void __addThing(int32_t index, Thing* thing) {}
-		virtual void __updateThing(Thing* thing, uint16_t itemId, uint32_t count) {}
-		virtual void __replaceThing(uint32_t index, Thing* thing) {}
-		virtual void __removeThing(Thing* thing, uint32_t count) {}
+		virtual void __addThing(Thing*) {}
+		virtual void __addThing(int32_t, Thing*) {}
+		virtual void __updateThing(Thing*, uint16_t, uint32_t) {}
+		virtual void __replaceThing(uint32_t, Thing*) {}
+		virtual void __removeThing(Thing*, uint32_t) {}
 
-		virtual void postAddNotification(Thing* thing, const Cylinder* oldParent, int32_t index, cylinderlink_t link = LINK_OWNER) {}
-		virtual void postRemoveNotification(Thing* thing, const Cylinder* newParent, int32_t index, bool isCompleteRemoval,
-			cylinderlink_t link = LINK_OWNER) {}
+		virtual void postAddNotification(Thing*, const Cylinder*, int32_t, cylinderlink_t = LINK_OWNER) {}
+		virtual void postRemoveNotification(Thing*, const Cylinder*, int32_t, bool, cylinderlink_t = LINK_OWNER) {}
 
-		virtual bool isPushable() const {return false;}
-		virtual int getThrowRange() const {return 1;}
-		virtual std::string getDescription(int32_t lookDistance) const {return "";}
+		virtual bool isPushable() const {
+			return false;
+		}
+		virtual int getThrowRange() const {
+			return 1;
+		}
+		virtual std::string getDescription(int32_t) const {
+			return std::string();
+		}
 
-		virtual bool isRemoved() const {return false;}
+		virtual bool isRemoved() const {
+			return false;
+		}
 };
 
 #endif

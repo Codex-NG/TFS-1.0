@@ -1,100 +1,63 @@
-//////////////////////////////////////////////////////////////////////
-// OpenTibia - an opensource roleplaying game
-//////////////////////////////////////////////////////////////////////
-//
-//////////////////////////////////////////////////////////////////////
-// This program is free software; you can redistribute it and/or
-// modify it under the terms of the GNU General Public License
-// as published by the Free Software Foundation; either version 2
-// of the License, or (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program; if not, write to the Free Software Foundation,
-// Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-//////////////////////////////////////////////////////////////////////
+/**
+ * The Forgotten Server - a free and open-source MMORPG server emulator
+ * Copyright (C) 2014  Mark Samman <mark.samman@gmail.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ */
 
-#ifndef __OTSERV_TOOLS_H__
-#define __OTSERV_TOOLS_H__
+#ifndef FS_TOOLS_H_5F9A9742DA194628830AA1C64909AE43
+#define FS_TOOLS_H_5F9A9742DA194628830AA1C64909AE43
 
-#include "definitions.h"
+#include <random>
+
 #include "position.h"
 #include "const.h"
 #include "enums.h"
 
-#include <string>
-#include <algorithm>
+std::string transformToSHA1(const std::string& input);
 
-#include <libxml/parser.h>
-
-#include <boost/tokenizer.hpp>
-typedef boost::tokenizer<boost::char_separator<char> > tokenizer;
-
-enum DistributionType_t
-{
-	DISTRO_UNIFORM,
-	DISTRO_SQUARE,
-	DISTRO_NORMAL
-};
-
-std::string transformToMD5(std::string plainText, bool upperCase = false);
-std::string transformToSHA1(std::string plainText, bool upperCase = false);
-bool passwordTest(const std::string &plain, std::string &hash);
-
-void replaceString(std::string& str, const std::string sought, const std::string replacement);
-void trim_right(std::string& source, const std::string& t);
-void trim_left(std::string& source, const std::string& t);
+void replaceString(std::string& str, const std::string& sought, const std::string& replacement);
+void trim_right(std::string& source, char t);
+void trim_left(std::string& source, char t);
 void toLowerCaseString(std::string& source);
-void toUpperCaseString(std::string& source);
 std::string asLowerCaseString(const std::string& source);
 std::string asUpperCaseString(const std::string& source);
 
-bool utf8ToLatin1(char* intext, std::string& outtext);
-bool readXMLInteger(xmlNodePtr node, const char* tag, int& value);
-#if (defined __WINDOWS__ || defined WIN32) && !defined __GNUC__
-bool readXMLInteger(xmlNodePtr node, const char* tag, int32_t& value);
-#endif
-bool readXMLInteger64(xmlNodePtr node, const char* tag, uint64_t& value);
-bool readXMLFloat(xmlNodePtr node, const char* tag, float& value);
-bool readXMLString(xmlNodePtr node, const char* tag, std::string& value);
-bool readXMLContentString(xmlNodePtr node, std::string& value);
+typedef std::vector<std::string> StringVec;
+typedef std::vector<int32_t> IntegerVec;
 
-std::vector<std::string> explodeString(const std::string& inString, const std::string& separator, int32_t limit = -1);
-std::vector<int32_t> vectorAtoi(std::vector<std::string> stringVector);
+StringVec explodeString(const std::string& inString, const std::string& separator, int32_t limit = -1);
+IntegerVec vectorAtoi(const StringVec& stringVector);
 bool hasBitSet(uint32_t flag, uint32_t flags);
 
-std::string generateRecoveryKey(int32_t fieldCount, int32_t fieldLength);
+std::mt19937& getRandomGenerator();
+int32_t uniform_random(int32_t minNumber, int32_t maxNumber);
+int32_t normal_random(int32_t minNumber, int32_t maxNumber);
+bool boolean_random(double probability = 0.5);
 
-bool isNumber(char character);
-bool isUppercaseLetter(char character);
-bool isLowercaseLetter(char character);
-bool isPasswordCharacter(char character);
-
-bool isValidName(std::string text, bool forceUppercaseOnFirstLetter = true);
-bool isValidPassword(std::string text);
-bool isNumbers(std::string text);
-
-bool checkText(std::string text, std::string str);
-
-int random_range(int lowest_number, int highest_number, DistributionType_t type = DISTRO_UNIFORM);
-
-Direction getDirection(std::string string);
-Direction getReverseDirection(Direction dir);
+Direction getDirection(const std::string& string);
 Position getNextPosition(Direction direction, Position pos);
+Direction getDirectionTo(const Position& from, const Position& to);
 
-char upchar(char c);
-
-std::string parseParams(tokenizer::iterator &it, tokenizer::iterator end);
+std::string getFirstLine(const std::string& str);
 
 std::string formatDate(time_t time);
 std::string formatDateShort(time_t time);
 std::string convertIPToString(uint32_t ip);
 
-std::string trimString(std::string& str);
+void trimString(std::string& str);
 
 MagicEffectClasses getMagicEffect(const std::string& strValue);
 ShootType_t getShootType(const std::string& strValue);
@@ -104,13 +67,32 @@ CombatType_t getCombatType(const std::string& strValue);
 std::string getCombatName(CombatType_t combatType);
 
 std::string getSkillName(uint16_t skillid);
-skills_t getSkillId(std::string param);
 
-int32_t actionStringToInt(std::string action);
-int32_t reasonStringToInt(std::string reason);
-std::string getReason(int32_t reasonId);
-std::string getAction(int32_t actionId, bool IPBanishment);
-
-bool fileExists(const char* filename);
 uint32_t adlerChecksum(uint8_t* data, size_t len);
+
+std::string ucfirst(std::string str);
+std::string ucwords(std::string str);
+bool booleanString(const std::string& str);
+
+std::string getWeaponName(WeaponType_t weaponType);
+
+uint32_t combatTypeToIndex(CombatType_t combatType);
+CombatType_t indexToCombatType(uint32_t v);
+
+uint8_t serverFluidToClient(uint8_t serverFluid);
+uint8_t clientFluidToServer(uint8_t clientFluid);
+
+itemAttrTypes stringToItemAttribute(const std::string& str);
+
+const char* getReturnMessage(ReturnValue value);
+
+#if !defined(_MSC_VER) || _MSC_VER < 1800
+double round(double v);
+#endif
+
+inline int64_t OTSYS_TIME()
+{
+	return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
 #endif

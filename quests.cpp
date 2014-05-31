@@ -1,296 +1,242 @@
-//////////////////////////////////////////////////////////////////////
-// OpenTibia - an opensource roleplaying game
-//////////////////////////////////////////////////////////////////////
-// Quests
-//////////////////////////////////////////////////////////////////////
-// This program is free software; you can redistribute it and/or
-// modify it under the terms of the GNU General Public License
-// as published by the Free Software Foundation; either version 2
-// of the License, or (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program; if not, write to the Free Software Foundation,
-// Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-//////////////////////////////////////////////////////////////////////
+/**
+ * The Forgotten Server - a free and open-source MMORPG server emulator
+ * Copyright (C) 2014  Mark Samman <mark.samman@gmail.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ */
+
+#include "otpch.h"
 
 #include "quests.h"
 #include "tools.h"
 
-MissionState::MissionState(std::string _description, int32_t _missionID)
-{
-	description = _description;
- 	missionID = _missionID;
-}
+#include "pugicast.h"
 
-Mission::Mission(std::string _missionName, int32_t _storageID, int32_t _startValue, int32_t _endValue)
+std::string Mission::getDescription(Player* player) const
 {
-	missionName = _missionName;
-	endValue = _endValue;
-	startValue = _startValue;
-	storageID = _storageID;
-}
+	int32_t value;
+	player->getStorageValue(storageID, value);
 
-Mission::~Mission()
-{
-	for(uint32_t it = 0; it != state.size(); it++)
-		delete state[it];
-
-	state.clear();
-}
-
-std::string Mission::getDescription(Player* player)
-{
-	int32_t current = endValue;
-	while(current >= startValue)
-	{
-		int32_t value;
-		if(player->getStorageValue(storageID, value) && value == current)
-		{
-			StateList::const_iterator sit;
-			sit = state.find(current);
-			if(sit != state.end())
-				return sit->second->getMissionDescription();
-		}
-		current--;
+	if (mainState) {
+		std::string desc = mainState->getMissionDescription();
+		replaceString(desc, "|STATE|", std::to_string(value));
+		replaceString(desc, "\\n", "\n");
+		return desc;
 	}
+
+	int32_t current = endValue;
+
+	if (ignoreEndValue) {
+		while (current >= startValue) {
+			if (value >= current) {
+				auto sit = state.find(current);
+				if (sit != state.end()) {
+					return sit->second.getMissionDescription();
+				}
+			}
+
+			current--;
+		}
+	} else {
+		while (current >= startValue) {
+			if (value == current) {
+				auto sit = state.find(current);
+				if (sit != state.end()) {
+					return sit->second.getMissionDescription();
+				}
+			}
+
+			current--;
+		}
+	}
+
 	return "An error has occurred, please contact a gamemaster.";
 }
 
 bool Mission::isStarted(Player* player) const
 {
-	if(player)
-	{
-		int32_t value;
-		if(player->getStorageValue(storageID, value) && value >= startValue && value <= endValue)
-			return true;
+	if (!player) {
+		return false;
 	}
-	return false;
+
+	int32_t value;
+	if (!player->getStorageValue(storageID, value)) {
+		return false;
+	}
+
+	if (value < startValue) {
+		return false;
+	}
+
+	if (!ignoreEndValue && value > endValue) {
+		return false;
+	}
+
+	return true;
 }
 
 bool Mission::isCompleted(Player* player) const
 {
-	if(player)
-	{
-		int32_t value;
-		if(player->getStorageValue(storageID, value) && value == endValue)
-			return true;
+	if (!player) {
+		return false;
 	}
-	return false;
+
+	int32_t value;
+	if (!player->getStorageValue(storageID, value)) {
+		return false;
+	}
+
+	if (ignoreEndValue) {
+		return value >= endValue;
+	}
+
+	return value == endValue;
 }
 
-std::string Mission::getName(Player* player)
+std::string Mission::getName(Player* player) const
 {
-	if(isCompleted(player))
-		return missionName + " (completed)";
-
-	return missionName;
+	if (isCompleted(player)) {
+		return name + " (completed)";
+	}
+	return name;
 }
 
-Quest::Quest(std::string _name, uint16_t _id, int32_t _startStorageID, int32_t _startStorageValue)
-{
-	name = _name;
-	id = _id;
-	startStorageID = _startStorageID;
-	startStorageValue = _startStorageValue;
-}
-
-Quest::~Quest()
-{
-	for(MissionsList::iterator it = missions.begin(); it != missions.end(); it++)
-		delete (*it);
-
-	missions.clear();
-}
-
-uint16_t Quest::getMissionsCount(Player* player)
+uint16_t Quest::getMissionsCount(Player* player) const
 {
 	uint16_t count = 0;
-	for(MissionsList::const_iterator it = missions.begin(); it != missions.end(); it++)
-	{
-		if((*it)->isStarted(player))
+	for (const Mission& mission : missions) {
+		if (mission.isStarted(player)) {
 			count++;
+		}
 	}
 	return count;
 }
 
-bool Quest::isCompleted(Player* player)
+bool Quest::isCompleted(Player* player) const
 {
-	for(MissionsList::const_iterator it = missions.begin(); it != missions.end(); it++)
-	{
-		if(!(*it)->isCompleted(player))
+	for (const Mission& mission : missions) {
+		if (!mission.isCompleted(player)) {
 			return false;
+		}
 	}
 	return true;
 }
 
 bool Quest::isStarted(Player* player) const
 {
-	if(player)
-	{
-		int32_t value;
-		if(player->getStorageValue(startStorageID, value) && value >= startStorageValue)
-			return true;
+	if (!player) {
+		return false;
 	}
-	return false;
-}
 
-void Quest::getMissionList(Player* player, NetworkMessage_ptr msg)
-{
-	msg->AddByte(0xF1);
-	msg->AddU16(id);
-	msg->AddByte(getMissionsCount(player));
-	for(MissionsList::const_iterator it = missions.begin(); it != missions.end(); it++)
-	{
-		if((*it)->isStarted(player))
-		{
-			msg->AddString((*it)->getName(player));
-			msg->AddString((*it)->getDescription(player));
-		}
+	int32_t value;
+	if (!player->getStorageValue(startStorageID, value) || value < startStorageValue) {
+		return false;
 	}
-}
 
-Quests::Quests()
-{
-	//
-}
-
-Quests::~Quests()
-{
-	for(QuestsList::iterator it = quests.begin(); it != quests.end(); it++)
-		delete (*it);
-
-	quests.clear();
+	return true;
 }
 
 bool Quests::reload()
 {
-	for(QuestsList::iterator it = quests.begin(); it != quests.end(); it++)
-		delete (*it);
-
 	quests.clear();
 	return loadFromXml();
 }
 
 bool Quests::loadFromXml()
 {
-	xmlDocPtr doc = xmlParseFile("data/XML/quests.xml");
-	if(doc)
-	{
-		xmlNodePtr root, p;
-		root = xmlDocGetRootElement(doc);
-		if(xmlStrcmp(root->name,(const xmlChar*)"quests") == 0)
-		{
-			int32_t intValue;
-			std::string strValue;
-			uint16_t id = 0;
-			p = root->children;
-			while(p)
-			{
-				if(xmlStrcmp(p->name, (const xmlChar*)"quest") == 0)
-				{
-					std::string name;
-					int32_t startStorageID = 0, startStorageValue = 0;
-					if(readXMLString(p, "name", strValue))
-						name = strValue;
+	pugi::xml_document doc;
+	pugi::xml_parse_result result = doc.load_file("data/XML/quests.xml");
+	if (!result) {
+		std::cout << "[Error - Quests::loadFromXml] Failed to load data/XML/quests.xml: " << result.description() << std::endl;
+		return false;
+	}
 
-					if(readXMLInteger(p, "startstorageid", intValue))
-						startStorageID = intValue;
+	uint16_t id = 0;
+	for (pugi::xml_node questNode = doc.child("quests").first_child(); questNode; questNode = questNode.next_sibling()) {
+		quests.emplace_back(
+			questNode.attribute("name").as_string(),
+			++id,
+			pugi::cast<int32_t>(questNode.attribute("startstorageid").value()),
+			pugi::cast<int32_t>(questNode.attribute("startstoragevalue").value())
+		);
+		Quest& quest = quests.back();
 
-					if(readXMLInteger(p, "startstoragevalue", intValue))
-						startStorageValue = intValue;
+		for (pugi::xml_node missionNode = questNode.first_child(); missionNode; missionNode = missionNode.next_sibling()) {
+			std::string missionState = missionNode.attribute("description").as_string();
 
-					Quest *quest = new Quest(name, id, startStorageID, startStorageValue);
-					xmlNodePtr tmpNode = p->children;
-					while(tmpNode)
-					{
-						if(xmlStrcmp(tmpNode->name, (const xmlChar*)"mission") == 0)
-						{
-							std::string missionName;
-							int32_t storageID = 0, startValue = 0, endValue = 0;
-							if(readXMLString(tmpNode, "name", strValue))
-								missionName = strValue;
+			quest.missions.emplace_back(
+				missionNode.attribute("name").as_string(),
+				pugi::cast<int32_t>(missionNode.attribute("storageid").value()),
+				pugi::cast<int32_t>(missionNode.attribute("startvalue").value()),
+				pugi::cast<int32_t>(missionNode.attribute("endvalue").value()),
+				missionNode.attribute("ignoreendvalue").as_bool()
+			);
+			Mission& mission = quest.missions.back();
 
-							if(readXMLInteger(tmpNode, "storageid", intValue))
-								storageID = intValue;
-
-							if(readXMLInteger(tmpNode, "startvalue", intValue))
-								startValue = intValue;
-
-							if(readXMLInteger(tmpNode, "endvalue", intValue))
-								endValue = intValue;
-
-							xmlNodePtr tmpNode2 = tmpNode->children;
-
-							Mission *mission = new Mission(missionName, storageID, startValue, endValue);
-							while(tmpNode2)
-							{
-								if(xmlStrcmp(tmpNode2->name, (const xmlChar*)"missionstate") == 0)
-								{
-									std::string description;
-									int32_t missionID = 0;
-									if(readXMLInteger(tmpNode2, "id", intValue))
-										missionID = intValue;
-
-									if(readXMLString(tmpNode2, "description", strValue))
-										description = strValue;
-
-									mission->state[missionID] = new MissionState(description, missionID);
-								}
-								tmpNode2 = tmpNode2->next;
-							}
-							quest->missions.push_back(mission);
-						}
-						tmpNode = tmpNode->next;
-					}
-					quests.push_back(quest);
+			if (missionState.empty()) {
+				for (pugi::xml_node missionStateNode = missionNode.first_child(); missionStateNode; missionStateNode = missionStateNode.next_sibling()) {
+					int32_t missionId = pugi::cast<int32_t>(missionStateNode.attribute("id").value());
+					mission.state[missionId] = MissionState(missionStateNode.attribute("description").as_string(), missionId); // TODO: Use emplace
 				}
-				id++;
-				p = p->next;
+			} else {
+				mission.mainState = new MissionState(missionState, 0);
 			}
 		}
-		xmlFreeDoc(doc);
-		return true;
 	}
-	return false;
+	return true;
 }
 
-Quest *Quests::getQuestByID(uint16_t id)
+Quest* Quests::getQuestByID(uint16_t id)
 {
-	for(QuestsList::iterator it = quests.begin(); it != quests.end(); it++)
-	{
-		if((*it)->getID() == id)
-			return (*it);
+	for (Quest& quest : quests) {
+		if (quest.id == id) {
+			return &quest;
+		}
 	}
-	return NULL;
+	return nullptr;
 }
 
-uint16_t Quests::getQuestsCount(Player* player)
+uint16_t Quests::getQuestsCount(Player* player) const
 {
 	uint16_t count = 0;
-	for(QuestsList::const_iterator it = quests.begin(); it != quests.end(); it++)
-	{
-		if((*it)->isStarted(player))
+	for (const Quest& quest : quests) {
+		if (quest.isStarted(player)) {
 			count++;
+		}
 	}
 	return count;
 }
 
-void Quests::getQuestsList(Player* player, NetworkMessage_ptr msg)
+bool Quests::isQuestStorage(const uint32_t key, const int32_t value, const int32_t oldValue) const
 {
-	msg->AddByte(0xF0);
-	msg->AddU16(getQuestsCount(player));
-	for(QuestsList::const_iterator it = quests.begin(); it != quests.end(); it++)
-	{
-		if((*it)->isStarted(player))
-		{
-			msg->AddU16((*it)->getID());
-			msg->AddString((*it)->getName());
-			msg->AddByte((*it)->isCompleted(player));
+	for (const Quest& quest : quests) {
+		if (quest.getStartStorageId() == key && quest.getStartStorageValue() == value) {
+			return true;
+		}
+
+		for (const Mission& mission : quest.getMissions()) {
+			if (mission.mainState) {
+				if (mission.getStorageId() == key && value >= mission.getStartStorageValue() && value <= mission.getEndStorageValue() && (oldValue < mission.getStartStorageValue() || oldValue > mission.getEndStorageValue())) {
+					return true;
+				}
+			} else {
+				if (mission.getStorageId() == key && value >= mission.getStartStorageValue() && value <= mission.getEndStorageValue()) {
+					return true;
+				}
+			}
 		}
 	}
+	return false;
 }

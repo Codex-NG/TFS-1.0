@@ -1,34 +1,31 @@
-//////////////////////////////////////////////////////////////////////
-// OpenTibia - an opensource roleplaying game
-//////////////////////////////////////////////////////////////////////
-//
-//////////////////////////////////////////////////////////////////////
-// This program is free software; you can redistribute it and/or
-// modify it under the terms of the GNU General Public License
-// as published by the Free Software Foundation; either version 2
-// of the License, or (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program; if not, write to the Free Software Foundation,
-// Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-//////////////////////////////////////////////////////////////////////
+/**
+ * The Forgotten Server - a free and open-source MMORPG server emulator
+ * Copyright (C) 2014  Mark Samman <mark.samman@gmail.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ */
 
-#ifndef __OTSERV_MONSTERS_H__
-#define __OTSERV_MONSTERS_H__
+#ifndef FS_MONSTERS_H_776E8327BCE2450EB7C4A260785E6C0D
+#define FS_MONSTERS_H_776E8327BCE2450EB7C4A260785E6C0D
 
-#include <string>
 #include "creature.h"
 
 #define MAX_LOOTCHANCE 100000
 #define MAX_STATICWALK 100
 
-struct LootBlock
-{
+struct LootBlock {
 	uint16_t id;
 	uint32_t countmax;
 	uint32_t chance;
@@ -38,22 +35,18 @@ struct LootBlock
 	int32_t actionId;
 	std::string text;
 
-	typedef std::list<LootBlock> LootItems;
-	LootItems childLoot;
-	LootBlock()
-	{
+	std::list<LootBlock> childLoot;
+	LootBlock() {
 		id = 0;
 		countmax = 0;
 		chance = 0;
 
 		subType = -1;
 		actionId = -1;
-		text = "";
 	}
 };
 
-struct summonBlock_t
-{
+struct summonBlock_t {
 	std::string name;
 	uint32_t chance;
 	uint32_t speed;
@@ -61,8 +54,7 @@ struct summonBlock_t
 
 class BaseSpell;
 
-struct spellBlock_t
-{
+struct spellBlock_t {
 	BaseSpell* spell;
 	uint32_t chance;
 	uint32_t speed;
@@ -73,18 +65,10 @@ struct spellBlock_t
 	bool isMelee;
 };
 
-struct voiceBlock_t
-{
+struct voiceBlock_t {
 	std::string text;
 	bool yellText;
 };
-
-typedef std::list<LootBlock> LootItems;
-typedef std::list<summonBlock_t> SummonList;
-typedef std::list<spellBlock_t> SpellList;
-typedef std::vector<voiceBlock_t> VoiceVector;
-typedef std::list<std::string> MonsterScriptList;
-typedef std::map<CombatType_t, int32_t> ElementMap;
 
 class MonsterType
 {
@@ -94,53 +78,63 @@ class MonsterType
 
 		void reset();
 
+		std::map<CombatType_t, int32_t> elementMap;
+
+		std::vector<voiceBlock_t> voiceVector;
+
+		std::list<LootBlock> lootItems;
+		std::list<std::string> scriptList;
+		std::list<spellBlock_t> spellAttackList;
+		std::list<spellBlock_t> spellDefenseList;
+		std::list<summonBlock_t> summonList;
+
 		std::string name;
 		std::string nameDescription;
+
+		LuaScriptInterface* scriptInterface;
+
 		uint64_t experience;
 
+		Outfit_t outfit;
+
+		int32_t creatureAppearEvent;
+		int32_t creatureDisappearEvent;
+		int32_t creatureMoveEvent;
+		int32_t creatureSayEvent;
+		int32_t thinkEvent;
+
+		uint32_t manaCost;
+		uint32_t yellChance;
+		uint32_t yellSpeedTicks;
+		uint32_t staticAttackChance;
+		uint32_t maxSummons;
+		int32_t targetDistance;
+		int32_t runAwayHealth;
+		int32_t baseSpeed;
+		int32_t health;
+		int32_t healthMax;
+		int32_t changeTargetSpeed;
+		int32_t changeTargetChance;
+		int32_t lightLevel;
+		int32_t lightColor;
+		int32_t conditionImmunities;
+		int32_t damageImmunities;
 		int32_t defense;
 		int32_t armor;
 
+		RaceType_t race;
+
+		uint16_t lookcorpse;
+
 		bool canPushItems;
 		bool canPushCreatures;
-		uint32_t staticAttackChance;
-		int32_t maxSummons;
-		int32_t targetDistance;
-		int32_t runAwayHealth;
 		bool pushable;
-		int32_t base_speed;
-		int32_t health;
-		int32_t health_max;
-
-		Outfit_t outfit;
-		uint16_t lookcorpse;
-		int32_t conditionImmunities;
-		int32_t damageImmunities;
-		RaceType_t race;
 		bool isSummonable;
 		bool isIllusionable;
 		bool isConvinceable;
 		bool isAttackable;
 		bool isHostile;
-
-		int32_t lightLevel;
-		int32_t lightColor;
-
-		uint32_t manaCost;
-		SummonList summonList;
-		LootItems lootItems;
-		ElementMap elementMap;
-		SpellList spellAttackList;
-		SpellList spellDefenseList;
-
-		uint32_t yellChance;
-		uint32_t yellSpeedTicks;
-		VoiceVector voiceVector;
-
-		int32_t changeTargetSpeed;
-		int32_t changeTargetChance;
-
-		MonsterScriptList scriptList;
+		bool hiddenHealth;
 
 		void createLoot(Container* corpse);
 		bool createLootContainer(Container* parent, const LootBlock& lootblock);
@@ -154,7 +148,9 @@ class Monsters
 		~Monsters();
 
 		bool loadFromXml(bool reloading = false);
-		bool isLoaded(){return loaded;}
+		bool isLoaded() const {
+			return loaded;
+		}
 		bool reload();
 
 		MonsterType* getMonsterType(const std::string& name);
@@ -165,19 +161,18 @@ class Monsters
 
 	private:
 		ConditionDamage* getDamageCondition(ConditionType_t conditionType,
-			int32_t maxDamage, int32_t minDamage, int32_t startDamage, uint32_t tickInterval);
-		bool deserializeSpell(xmlNodePtr node, spellBlock_t& sb, const std::string& description = "");
+		                                    int32_t maxDamage, int32_t minDamage, int32_t startDamage, uint32_t tickInterval);
+		bool deserializeSpell(const pugi::xml_node& node, spellBlock_t& sb, const std::string& description = "");
 
 		bool loadMonster(const std::string& file, const std::string& monster_name, bool reloading = false);
 
-		bool loadLootContainer(xmlNodePtr, LootBlock&);
-		bool loadLootItem(xmlNodePtr, LootBlock&);
+		void loadLootContainer(const pugi::xml_node& node, LootBlock&);
+		bool loadLootItem(const pugi::xml_node& node, LootBlock&);
 
-		typedef std::map<std::string, uint32_t> MonsterNameMap;
-		MonsterNameMap monsterNames;
-
-		typedef std::map<uint32_t, MonsterType*> MonsterMap;
-		MonsterMap monsters;
+		std::map<std::string, uint32_t> monsterNames;
+		std::map<MonsterType*, std::string> monsterScriptList;
+		std::map<uint32_t, MonsterType*> monsters;
+		LuaScriptInterface* scriptInterface;
 
 		bool loaded;
 };

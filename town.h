@@ -1,54 +1,55 @@
-//////////////////////////////////////////////////////////////////////
-// OpenTibia - an opensource roleplaying game
-//////////////////////////////////////////////////////////////////////
-//
-//////////////////////////////////////////////////////////////////////
-// This program is free software; you can redistribute it and/or
-// modify it under the terms of the GNU General Public License
-// as published by the Free Software Foundation; either version 2
-// of the License, or (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program; if not, write to the Free Software Foundation,
-// Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-//////////////////////////////////////////////////////////////////////
+/**
+ * The Forgotten Server - a free and open-source MMORPG server emulator
+ * Copyright (C) 2014  Mark Samman <mark.samman@gmail.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ */
 
-#ifndef __TOWN_H__
-#define __TOWN_H__
-
-#include <string>
-#include <list>
-#include <map>
+#ifndef FS_TOWN_H_3BE21D2293B44AA4A3D22D25BE1B9350
+#define FS_TOWN_H_3BE21D2293B44AA4A3D22D25BE1B9350
 
 #include "position.h"
-#include "definitions.h"
 
 class Town
 {
 	public:
-		Town(uint32_t _townid)
-		{
-			townid = _townid;
+		Town(uint32_t _id)
+			: id(_id) {}
+		~Town() {}
+
+		const Position& getTemplePosition() const {
+			return templePosition;
+		}
+		const std::string& getName() const {
+			return name;
 		}
 
-		~Town(){}
-
-		const Position& getTemplePosition() const {return posTemple;}
-		const std::string& getName() const {return townName;}
-
-		void setTemplePos(const Position& pos) {posTemple = pos;}
-		void setName(std::string _townName) {townName = _townName;}
-		uint32_t getTownID() const {return townid;}
+		void setTemplePos(const Position& pos) {
+			templePosition = pos;
+		}
+		void setName(const std::string& _name) {
+			name = _name;
+		}
+		uint32_t getID() const {
+			return id;
+		}
 
 	private:
-		uint32_t townid;
-		std::string townName;
-		Position posTemple;
+		uint32_t id;
+		std::string name;
+		Position templePosition;
 };
 
 typedef std::map<uint32_t, Town*> TownMap;
@@ -56,43 +57,47 @@ typedef std::map<uint32_t, Town*> TownMap;
 class Towns
 {
 	public:
-		static Towns& getInstance()
-		{
-			static Towns instance;
-			return instance;
+		~Towns() {
+			for (const auto& it : townMap) {
+				delete it.second;
+			}
 		}
 
-		bool addTown(uint32_t _townid, Town* town)
-		{
-			TownMap::iterator it = townMap.find(_townid);
-			if(it != townMap.end())
-				return false;
+		static Towns& getInstance() {
+			static Towns singleton;
+			return singleton;
+		}
 
-			townMap[_townid] = town;
+		bool addTown(uint32_t townId, Town* town) {
+			auto it = townMap.find(townId);
+			if (it != townMap.end()) {
+				return false;
+			}
+
+			townMap[townId] = town;
 			return true;
 		}
 
-		Town* getTown(std::string& townname)
-		{
-			for(TownMap::iterator it = townMap.begin(); it != townMap.end(); ++it)
-			{
-				if(strcasecmp(it->second->getName().c_str(), townname.c_str()) == 0)
-					return it->second;
+		Town* getTown(const std::string& townName) const {
+			for (const auto& it : townMap) {
+				if (strcasecmp(townName.c_str(), it.second->getName().c_str()) == 0) {
+					return it.second;
+				}
 			}
-			return NULL;
+			return nullptr;
 		}
 
-		Town* getTown(uint32_t _townid)
-		{
-			TownMap::iterator it = townMap.find(_townid);
-			if(it != townMap.end())
-				return it->second;
-
-			return NULL;
+		Town* getTown(uint32_t townId) const {
+			auto it = townMap.find(townId);
+			if (it == townMap.end()) {
+				return nullptr;
+			}
+			return it->second;
 		}
 
-		TownMap::const_iterator getFirstTown() const{return townMap.begin();}
-		TownMap::const_iterator getLastTown() const{return townMap.end();}
+		const TownMap& getTowns() const {
+			return townMap;
+		}
 
 	private:
 		TownMap townMap;

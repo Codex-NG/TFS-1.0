@@ -1,35 +1,28 @@
-//////////////////////////////////////////////////////////////////////
-// OpenTibia - an opensource roleplaying game
-//////////////////////////////////////////////////////////////////////
-//
-//////////////////////////////////////////////////////////////////////
-// This program is free software; you can redistribute it and/or
-// modify it under the terms of the GNU General Public License
-// as published by the Free Software Foundation; either version 2
-// of the License, or (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program; if not, write to the Free Software Foundation,
-// Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-//////////////////////////////////////////////////////////////////////
+/**
+ * The Forgotten Server - a free and open-source MMORPG server emulator
+ * Copyright (C) 2014  Mark Samman <mark.samman@gmail.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ */
 
-#ifndef __OTSERV_ITEMLOADER_H__
-#define __OTSERV_ITEMLOADER_H__
+#ifndef FS_ITEMLOADER_H_107F1D3EECC94CD0A0F528843010D5D4
+#define FS_ITEMLOADER_H_107F1D3EECC94CD0A0F528843010D5D4
 
 #include "fileloader.h"
-#include "definitions.h"
 
-typedef uint8_t attribute_t;
-typedef uint16_t datasize_t;
-typedef uint32_t flags_t;
-
-enum itemgroup_t
-{
+enum itemgroup_t {
 	ITEM_GROUP_NONE = 0,
 	ITEM_GROUP_GROUND,
 	ITEM_GROUP_CONTAINER,
@@ -49,8 +42,7 @@ enum itemgroup_t
 };
 
 /////////OTB specific//////////////
-enum clientVersion_t
-{
+enum clientVersion_t {
 	CLIENT_VERSION_750 = 1,
 	CLIENT_VERSION_755 = 2,
 	CLIENT_VERSION_760 = 3,
@@ -73,16 +65,47 @@ enum clientVersion_t
 	CLIENT_VERSION_860_OLD = 19,
 	CLIENT_VERSION_860 = 20,
 	CLIENT_VERSION_861 = 21,
-	CLIENT_VERSION_862 = 22
+	CLIENT_VERSION_862 = 22,
+	CLIENT_VERSION_870 = 23,
+	CLIENT_VERSION_871 = 24,
+	CLIENT_VERSION_872 = 25,
+	CLIENT_VERSION_873 = 26,
+	CLIENT_VERSION_900 = 27,
+	CLIENT_VERSION_910 = 28,
+	CLIENT_VERSION_920 = 29,
+	CLIENT_VERSION_940 = 30,
+	CLIENT_VERSION_944_V1 = 31,
+	CLIENT_VERSION_944_V2 = 32,
+	CLIENT_VERSION_944_V3 = 33,
+	CLIENT_VERSION_944_V4 = 34,
+	CLIENT_VERSION_946 = 35,
+	CLIENT_VERSION_950 = 36,
+	CLIENT_VERSION_952 = 37,
+	CLIENT_VERSION_953 = 38,
+	CLIENT_VERSION_954 = 39,
+	CLIENT_VERSION_960 = 40,
+	CLIENT_VERSION_961 = 41,
+	CLIENT_VERSION_963 = 42,
+	CLIENT_VERSION_970 = 43,
+	CLIENT_VERSION_980 = 44,
+	CLIENT_VERSION_981 = 45,
+	CLIENT_VERSION_982 = 46,
+	CLIENT_VERSION_983 = 47,
+	CLIENT_VERSION_985 = 48,
+	CLIENT_VERSION_986 = 49,
+	CLIENT_VERSION_1010 = 50,
+	CLIENT_VERSION_1020 = 51,
+	CLIENT_VERSION_1021 = 52,
+	CLIENT_VERSION_1030 = 53,
+	CLIENT_VERSION_1031 = 54,
+	CLIENT_VERSION_1035 = 55
 };
 
-enum rootattrib_
-{
+enum rootattrib_ {
 	ROOT_ATTR_VERSION = 0x01
 };
 
-enum itemattrib_t
-{
+enum itemattrib_t {
 	ITEM_ATTR_FIRST = 0x10,
 	ITEM_ATTR_SERVERID = ITEM_ATTR_FIRST,
 	ITEM_ATTR_CLIENTID,
@@ -115,11 +138,13 @@ enum itemattrib_t
 	ITEM_ATTR_LIGHT2,
 	ITEM_ATTR_TOPORDER,
 	ITEM_ATTR_WRITEABLE3, //deprecated
+
+	ITEM_ATTR_WAREID,
+
 	ITEM_ATTR_LAST
 };
 
-enum itemflags_t
-{
+enum itemflags_t {
 	FLAG_BLOCK_SOLID = 1,
 	FLAG_BLOCK_PROJECTILE = 2,
 	FLAG_BLOCK_PATHFIND = 4,
@@ -143,22 +168,22 @@ enum itemflags_t
 	FLAG_ALLOWDISTREAD = 1048576,
 	FLAG_UNUSED = 2097152,
 	FLAG_CLIENTCHARGES = 4194304, /* deprecated */
-	FLAG_LOOKTHROUGH = 8388608
+	FLAG_LOOKTHROUGH = 8388608,
+	FLAG_ANIMATION = 16777216,
+	FLAG_FULLTILE = 33554432
 };
 
 //1-byte aligned structs
 #pragma pack(1)
 
-struct VERSIONINFO
-{
+struct VERSIONINFO {
 	uint32_t dwMajorVersion;
 	uint32_t dwMinorVersion;
 	uint32_t dwBuildNumber;
 	uint8_t CSDVersion[128];
 };
 
-struct lightBlock2
-{
+struct lightBlock2 {
 	uint16_t lightLevel;
 	uint16_t lightColor;
 };

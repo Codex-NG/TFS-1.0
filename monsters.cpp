@@ -1,22 +1,22 @@
-//////////////////////////////////////////////////////////////////////
-// OpenTibia - an opensource roleplaying game
-//////////////////////////////////////////////////////////////////////
-//
-//////////////////////////////////////////////////////////////////////
-// This program is free software; you can redistribute it and/or
-// modify it under the terms of the GNU General Public License
-// as published by the Free Software Foundation; either version 2
-// of the License, or (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program; if not, write to the Free Software Foundation,
-// Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-//////////////////////////////////////////////////////////////////////
+/**
+ * The Forgotten Server - a free and open-source MMORPG server emulator
+ * Copyright (C) 2014  Mark Samman <mark.samman@gmail.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ */
+
 #include "otpch.h"
 
 #include "monsters.h"
@@ -30,8 +30,7 @@
 #include "configmanager.h"
 #include "game.h"
 
-#include <libxml/xmlmemory.h>
-#include <libxml/parser.h>
+#include "pugicast.h"
 
 extern Game g_game;
 extern Spells* g_spells;
@@ -50,6 +49,8 @@ void MonsterType::reset()
 	defense = 0;
 	armor = 0;
 
+	hiddenHealth = false;
+
 	canPushItems = false;
 	canPushCreatures = false;
 	staticAttackChance = 95;
@@ -57,9 +58,9 @@ void MonsterType::reset()
 	targetDistance = 1;
 	runAwayHealth = 0;
 	pushable = true;
-	base_speed = 200;
+	baseSpeed = 200;
 	health = 100;
-	health_max = 100;
+	healthMax = 100;
 
 	outfit.lookHead = 0;
 	outfit.lookBody = 0;
@@ -68,6 +69,7 @@ void MonsterType::reset()
 	outfit.lookType = 0;
 	outfit.lookTypeEx = 0;
 	outfit.lookAddons = 0;
+	outfit.lookMount = 0;
 	lookcorpse = 0;
 
 	conditionImmunities = 0;
@@ -87,26 +89,18 @@ void MonsterType::reset()
 	lootItems.clear();
 	elementMap.clear();
 
-	for(SpellList::iterator it = spellAttackList.begin(); it != spellAttackList.end(); ++it)
-	{
-		if(it->combatSpell)
-		{
-			delete it->spell;
-			it->spell = NULL;
+	for (const spellBlock_t& spellBlock : spellAttackList) {
+		if (spellBlock.combatSpell) {
+			delete spellBlock.spell;
 		}
 	}
-
 	spellAttackList.clear();
 
-	for(SpellList::iterator it = spellDefenseList.begin(); it != spellDefenseList.end(); ++it)
-	{
-		if(it->combatSpell)
-		{
-			delete it->spell;
-			it->spell = NULL;
+	for (const spellBlock_t& spellBlock : spellDefenseList) {
+		if (spellBlock.combatSpell) {
+			delete spellBlock.spell;
 		}
 	}
-
 	spellDefenseList.clear();
 
 	yellSpeedTicks = 0;
@@ -115,6 +109,13 @@ void MonsterType::reset()
 
 	changeTargetSpeed = 0;
 	changeTargetChance = 0;
+
+	scriptInterface = nullptr;
+	creatureAppearEvent = -1;
+	creatureDisappearEvent = -1;
+	creatureMoveEvent = -1;
+	creatureSayEvent = -1;
+	thinkEvent = -1;
 
 	scriptList.clear();
 }
@@ -126,189 +127,202 @@ MonsterType::~MonsterType()
 
 uint32_t Monsters::getLootRandom()
 {
-	return random_range(0, MAX_LOOTCHANCE)/g_config.getNumber(ConfigManager::RATE_LOOT);
+	return uniform_random(0, MAX_LOOTCHANCE) / g_config.getNumber(ConfigManager::RATE_LOOT);
 }
 
 void MonsterType::createLoot(Container* corpse)
 {
-	for(LootItems::const_iterator it = lootItems.begin(); it != lootItems.end() && (corpse->capacity() - corpse->size()) > 0; it++)
-	{
-		std::list<Item*> itemList = createLootItem(*it);
-		if(!itemList.empty())
-		{
-			for(std::list<Item*>::iterator iit = itemList.begin(); iit != itemList.end(); ++iit)
-			{
-				Item* tmpItem = *iit;
+	if (g_config.getNumber(ConfigManager::RATE_LOOT) == 0) {
+		corpse->__startDecaying();
+		return;
+	}
 
-				//check containers
-				if(Container* container = tmpItem->getContainer())
-				{
-					if(!createLootContainer(container, *it))
-						delete container;
-					else
-						corpse->__internalAddThing(tmpItem);
-				}
-				else
-					corpse->__internalAddThing(tmpItem);
+	Player* owner = g_game.getPlayerByID(corpse->getCorpseOwner());
+	if (!owner || owner->getStaminaMinutes() > 840) {
+		for (auto it = lootItems.rbegin(), end = lootItems.rend(); it != end; ++it) {
+			std::list<Item*> itemList = createLootItem(*it);
+			if (itemList.empty()) {
+				continue;
 			}
+
+			for (Item* item : itemList) {
+				//check containers
+				if (Container* container = item->getContainer()) {
+					if (!createLootContainer(container, *it)) {
+						delete container;
+					} else if (g_game.internalAddItem(corpse, item) != RET_NOERROR) {
+						corpse->__internalAddThing(item);
+					}
+				} else if (g_game.internalAddItem(corpse, item) != RET_NOERROR) {
+					corpse->__internalAddThing(item);
+				}
+			}
+		}
+
+		if (owner) {
+			std::ostringstream ss;
+			ss << "Loot of " << nameDescription << ": " << corpse->getContentDescription();
+
+			if (owner->getParty()) {
+				owner->getParty()->broadcastPartyLoot(ss.str());
+			} else {
+				owner->sendTextMessage(MESSAGE_INFO_DESCR, ss.str());
+			}
+		}
+	} else {
+		std::ostringstream ss;
+		ss << "Loot of " << nameDescription << ": nothing (due to low stamina)";
+
+		if (owner->getParty()) {
+			owner->getParty()->broadcastPartyLoot(ss.str());
+		} else {
+			owner->sendTextMessage(MESSAGE_INFO_DESCR, ss.str());
 		}
 	}
 
 	corpse->__startDecaying();
-
-	uint32_t ownerId = corpse->getCorpseOwner();
-	if(ownerId)
-	{
-		Player* owner = g_game.getPlayerByID(ownerId);
-		if(owner)
-		{
-			std::stringstream ss;
-			ss << "Loot of " << nameDescription << ": " << corpse->getContentDescription();
-			if(owner->getParty())
-				owner->getParty()->broadcastPartyLoot(ss.str());
-			else
-				owner->sendTextMessage(MSG_INFO_DESCR, ss.str());
-		}
-	}
 }
 
 std::list<Item*> MonsterType::createLootItem(const LootBlock& lootBlock)
 {
-	Item* tmpItem = NULL;
 	int32_t itemCount = 0;
 
 	uint32_t randvalue = Monsters::getLootRandom();
-	if(randvalue < lootBlock.chance)
-	{
-		if(Item::items[lootBlock.id].stackable)
+	if (randvalue < lootBlock.chance) {
+		if (Item::items[lootBlock.id].stackable) {
 			itemCount = randvalue % lootBlock.countmax + 1;
-		else
+		} else {
 			itemCount = 1;
+		}
 	}
 
 	std::list<Item*> itemList;
-	while(itemCount > 0)
-	{
-		uint16_t n = (uint16_t)std::min(itemCount, (int32_t)100);
-		tmpItem = Item::CreateItem(lootBlock.id, n);
+	while (itemCount > 0) {
+		uint16_t n = (uint16_t)std::min<int32_t>(itemCount, 100);
+		Item* tmpItem = Item::CreateItem(lootBlock.id, n);
+		if (!tmpItem) {
+			break;
+		}
+
 		itemCount -= n;
 
-		if(lootBlock.subType != -1)
+		if (lootBlock.subType != -1) {
 			tmpItem->setSubType(lootBlock.subType);
+		}
 
-		if(lootBlock.actionId != -1)
+		if (lootBlock.actionId != -1) {
 			tmpItem->setActionId(lootBlock.actionId);
+		}
 
-		if(lootBlock.text != "")
+		if (!lootBlock.text.empty()) {
 			tmpItem->setText(lootBlock.text);
+		}
 
 		itemList.push_back(tmpItem);
 	}
-
 	return itemList;
 }
 
 bool MonsterType::createLootContainer(Container* parent, const LootBlock& lootblock)
 {
-	LootItems::const_iterator it = lootblock.childLoot.begin();
-	if(it == lootblock.childLoot.end())
+	auto it = lootblock.childLoot.begin(), end = lootblock.childLoot.end();
+	if (it == end) {
 		return true;
+	}
 
-	for(; it != lootblock.childLoot.end() && parent->size() < parent->capacity(); it++)
-	{
+	for (; it != end && parent->size() < parent->capacity(); ++it) {
 		std::list<Item*> itemList = createLootItem(*it);
-		if(!itemList.empty())
-		{
-			for(std::list<Item*>::iterator iit = itemList.begin(); iit != itemList.end(); ++iit)
-			{
-				Item* tmpItem = *iit;
-				if(Container* container = tmpItem->getContainer())
-				{
-					if(!createLootContainer(container, *it))
-						delete container;
-					else
-						parent->__internalAddThing(container);
+		for (Item* tmpItem : itemList) {
+			if (Container* container = tmpItem->getContainer()) {
+				if (!createLootContainer(container, *it)) {
+					delete container;
+				} else {
+					parent->__internalAddThing(container);
 				}
-				else
-					parent->__internalAddThing(tmpItem);
+			} else {
+				parent->__internalAddThing(tmpItem);
 			}
 		}
 	}
-	return parent->size() != 0;
+	return !parent->empty();
 }
 
 Monsters::Monsters()
 {
 	loaded = false;
+	scriptInterface = nullptr;
+}
+
+Monsters::~Monsters()
+{
+	for (const auto& it : monsters) {
+		delete it.second;
+	}
+	delete scriptInterface;
 }
 
 bool Monsters::loadFromXml(bool reloading /*= false*/)
 {
-	loaded = false;
-	std::string filename = "data/monster/monsters.xml";
-
-	xmlDocPtr doc = xmlParseFile(filename.c_str());
-	if(doc)
-	{
-		loaded = true;
-		xmlNodePtr root, p;
-		root = xmlDocGetRootElement(doc);
-
-		if(xmlStrcmp(root->name,(const xmlChar*)"monsters") != 0)
-		{
-			xmlFreeDoc(doc);
-			loaded = false;
-			return false;
-		}
-
-		p = root->children;
-		while(p)
-		{
-			if(p->type != XML_ELEMENT_NODE)
-			{
-				p = p->next;
-				continue;
-			}
-
-			if(xmlStrcmp(p->name, (const xmlChar*)"monster") == 0)
-			{
-				std::string file;
-				std::string name;
-
-				if(readXMLString(p, "file", file) && readXMLString(p, "name", name))
-				{
-					file = "data/monster/" + file;
-					loadMonster(file, name, reloading);
-				}
-			}
-			else
-				std::cout << "[Warning - Monsters::loadFromXml]. Unknown node name. " << p->name << std::endl;
-
-			p = p->next;
-		}
-		xmlFreeDoc(doc);
+	pugi::xml_document doc;
+	pugi::xml_parse_result result = doc.load_file("data/monster/monsters.xml");
+	if (!result) {
+		std::cout << "[Error - Monsters::loadFromXml] Failed to load data/monster/monsters.xml: " << result.description() << std::endl;
+		return false;
 	}
-	return loaded;
+
+	loaded = true;
+	for (pugi::xml_node monsterNode = doc.child("monsters").first_child(); monsterNode; monsterNode = monsterNode.next_sibling()) {
+		loadMonster("data/monster/" + std::string(monsterNode.attribute("file").as_string()), monsterNode.attribute("name").as_string(), reloading);
+	}
+
+	if (!monsterScriptList.empty()) {
+		if (!scriptInterface) {
+			scriptInterface = new LuaScriptInterface("Monster Interface");
+			scriptInterface->initState();
+		}
+
+		for (const auto& scriptEntry : monsterScriptList) {
+			MonsterType* mType = scriptEntry.first;
+			if (scriptInterface->loadFile("data/monster/scripts/" + scriptEntry.second) == 0) {
+				mType->scriptInterface = scriptInterface;
+				mType->creatureAppearEvent = scriptInterface->getEvent("onCreatureAppear");
+				mType->creatureDisappearEvent = scriptInterface->getEvent("onCreatureDisappear");
+				mType->creatureMoveEvent = scriptInterface->getEvent("onCreatureMove");
+				mType->creatureSayEvent = scriptInterface->getEvent("onCreatureSay");
+				mType->thinkEvent = scriptInterface->getEvent("onThink");
+			} else {
+				std::cout << "[Warning - Monsters::loadMonster] Can not load script: " << scriptEntry.second << std::endl;
+				std::cout << scriptInterface->getLastLuaError() << std::endl;
+			}
+		}
+	}
+	return true;
 }
 
 bool Monsters::reload()
 {
+	loaded = false;
+
+	delete scriptInterface;
+	scriptInterface = nullptr;
+	monsterScriptList.clear();
+
 	return loadFromXml(true);
 }
 
 ConditionDamage* Monsters::getDamageCondition(ConditionType_t conditionType,
-	int32_t maxDamage, int32_t minDamage, int32_t startDamage, uint32_t tickInterval)
+        int32_t maxDamage, int32_t minDamage, int32_t startDamage, uint32_t tickInterval)
 {
-	ConditionDamage* condition = dynamic_cast<ConditionDamage*>(Condition::createCondition(CONDITIONID_COMBAT, conditionType, 0, 0));
-	condition->setParam(CONDITIONPARAM_TICKINTERVAL, tickInterval);
-	condition->setParam(CONDITIONPARAM_MINVALUE, minDamage);
-	condition->setParam(CONDITIONPARAM_MAXVALUE, maxDamage);
-	condition->setParam(CONDITIONPARAM_STARTVALUE, startDamage);
-	condition->setParam(CONDITIONPARAM_DELAYED, 1);
+	ConditionDamage* condition = static_cast<ConditionDamage*>(Condition::createCondition(CONDITIONID_COMBAT, conditionType, 0, 0));
+	condition->setParam(CONDITION_PARAM_TICKINTERVAL, tickInterval);
+	condition->setParam(CONDITION_PARAM_MINVALUE, minDamage);
+	condition->setParam(CONDITION_PARAM_MAXVALUE, maxDamage);
+	condition->setParam(CONDITION_PARAM_STARTVALUE, startDamage);
+	condition->setParam(CONDITION_PARAM_DELAYED, 1);
 	return condition;
 }
 
-bool Monsters::deserializeSpell(xmlNodePtr node, spellBlock_t& sb, const std::string& description)
+bool Monsters::deserializeSpell(const pugi::xml_node& node, spellBlock_t& sb, const std::string& description)
 {
 	sb.chance = 100;
 	sb.speed = 2000;
@@ -318,101 +332,98 @@ bool Monsters::deserializeSpell(xmlNodePtr node, spellBlock_t& sb, const std::st
 	sb.combatSpell = false;
 	sb.isMelee = false;
 
-	std::string name = "";
-	std::string scriptName = "";
+	std::string name;
+	std::string scriptName;
 	bool isScripted = false;
 
-	if(readXMLString(node, "script", scriptName))
+	pugi::xml_attribute attr;
+	if ((attr = node.attribute("script"))) {
+		scriptName = attr.as_string();
 		isScripted = true;
-	else if(!readXMLString(node, "name", name))
+	} else if ((attr = node.attribute("name"))) {
+		name = attr.as_string();
+	} else {
 		return false;
-
-	int intValue;
-	std::string strValue;
-	if(readXMLInteger(node, "speed", intValue) || readXMLInteger(node, "interval", intValue))
-		sb.speed = std::max(1, intValue);
-
-	if(readXMLInteger(node, "chance", intValue))
-	{
-		if(intValue < 0 || intValue > 100)
-			intValue = 100;
-
-		sb.chance = intValue;
 	}
 
-	if(readXMLInteger(node, "range", intValue))
-	{
-		if(intValue < 0 )
-			intValue = 0;
-
-		if(intValue > Map::maxViewportX * 2)
-			intValue = Map::maxViewportX * 2;
-
-		sb.range = intValue;
+	if ((attr = node.attribute("speed")) || (attr = node.attribute("interval"))) {
+		sb.speed = std::max<int32_t>(1, pugi::cast<int32_t>(attr.value()));
 	}
 
-	if(readXMLInteger(node, "min", intValue))
-		sb.minCombatValue = intValue;
+	if ((attr = node.attribute("chance"))) {
+		uint32_t chance = pugi::cast<uint32_t>(attr.value());
+		if (chance > 100) {
+			chance = 100;
+		}
+		sb.chance = chance;
+	}
 
-	if(readXMLInteger(node, "max", intValue))
-	{
-		sb.maxCombatValue = intValue;
+	if ((attr = node.attribute("range"))) {
+		uint32_t range = pugi::cast<uint32_t>(attr.value());
+		if (range > (Map::maxViewportX * 2)) {
+			range = Map::maxViewportX * 2;
+		}
+		sb.range = range;
+	}
+
+	if ((attr = node.attribute("min"))) {
+		sb.minCombatValue = pugi::cast<int32_t>(attr.value());
+	}
+
+	if ((attr = node.attribute("max"))) {
+		sb.maxCombatValue = pugi::cast<int32_t>(attr.value());
 
 		//normalize values
-		if(std::abs(sb.minCombatValue) > std::abs(sb.maxCombatValue))
-		{
+		if (std::abs(sb.minCombatValue) > std::abs(sb.maxCombatValue)) {
 			int32_t value = sb.maxCombatValue;
 			sb.maxCombatValue = sb.minCombatValue;
 			sb.minCombatValue = value;
 		}
 	}
 
-	if((sb.spell = g_spells->getSpellByName(name)))
+	sb.spell = g_spells->getSpellByName(name);
+	if (sb.spell) {
 		return true;
+	}
 
-	CombatSpell* combatSpell = NULL;
+	CombatSpell* combatSpell = nullptr;
 	bool needTarget = false;
 	bool needDirection = false;
 
-	if(isScripted)
-	{
-		if(readXMLInteger(node, "direction", intValue))
-			needDirection = (intValue == 1);
+	if (isScripted) {
+		if ((attr = node.attribute("direction"))) {
+			needDirection = attr.as_bool();
+		}
 
-		if(readXMLInteger(node, "target", intValue))
-			needTarget = (intValue != 0);
+		if ((attr = node.attribute("target"))) {
+			needTarget = attr.as_bool();
+		}
 
-		combatSpell = new CombatSpell(NULL, needTarget, needDirection);
-
-		if(!combatSpell->loadScript("data/" + g_spells->getScriptBaseName() + "/scripts/" + scriptName))
-		{
+		combatSpell = new CombatSpell(nullptr, needTarget, needDirection);
+		if (!combatSpell->loadScript("data/" + g_spells->getScriptBaseName() + "/scripts/" + scriptName)) {
 			delete combatSpell;
 			return false;
 		}
 
-		if(!combatSpell->loadScriptCombat())
-		{
+		if (!combatSpell->loadScriptCombat()) {
 			delete combatSpell;
 			return false;
 		}
 
-		combatSpell->getCombat()->setPlayerCombatValues(FORMULA_VALUE, sb.minCombatValue, 0, sb.maxCombatValue, 0);
-	}
-	else
-	{
+		combatSpell->getCombat()->setPlayerCombatValues(COMBAT_FORMULA_DAMAGE, sb.minCombatValue, 0, sb.maxCombatValue, 0);
+	} else {
 		Combat* combat = new Combat;
 		sb.combatSpell = true;
 
-		if(readXMLInteger(node, "length", intValue))
-		{
-			int32_t length = intValue;
-			if(length > 0)
-			{
+		if ((attr = node.attribute("length"))) {
+			int32_t length = pugi::cast<int32_t>(attr.value());
+			if (length > 0) {
 				int32_t spread = 3;
 
 				//need direction spell
-				if(readXMLInteger(node, "spread", intValue))
-					spread = std::max(0, intValue);
+				if ((attr = node.attribute("spread"))) {
+					spread = std::max<int32_t>(0, pugi::cast<int32_t>(attr.value()));
+				}
 
 				AreaCombat* area = new AreaCombat();
 				area->setupArea(length, spread);
@@ -422,13 +433,13 @@ bool Monsters::deserializeSpell(xmlNodePtr node, spellBlock_t& sb, const std::st
 			}
 		}
 
-		if(readXMLInteger(node, "radius", intValue))
-		{
-			int32_t radius = intValue;
+		if ((attr = node.attribute("radius"))) {
+			int32_t radius = pugi::cast<int32_t>(attr.value());
 
 			//target spell
-			if(readXMLInteger(node, "target", intValue))
-				needTarget = (intValue != 0);
+			if ((attr = node.attribute("target"))) {
+				needTarget = attr.as_bool();
+			}
 
 			AreaCombat* area = new AreaCombat();
 			area->setupArea(radius);
@@ -436,326 +447,280 @@ bool Monsters::deserializeSpell(xmlNodePtr node, spellBlock_t& sb, const std::st
 		}
 
 		std::string tmpName = asLowerCaseString(name);
-		if(tmpName == "melee")
-		{
-			int attack = 0;
-			int skill = 0;
+
+		if (tmpName == "melee") {
 			sb.isMelee = true;
-			if(readXMLInteger(node, "attack", attack))
-			{
-				if(readXMLInteger(node, "skill", skill))
-				{
-					sb.minCombatValue = 0;
-					sb.maxCombatValue = -Weapons::getMaxMeleeDamage(skill, attack);
-				}
+
+			pugi::xml_attribute attackAttribute, skillAttribute;
+			if ((attackAttribute = node.attribute("attack")) && (skillAttribute = node.attribute("skill"))) {
+				sb.minCombatValue = 0;
+				sb.maxCombatValue = -Weapons::getMaxMeleeDamage(pugi::cast<int32_t>(skillAttribute.value()), pugi::cast<int32_t>(attackAttribute.value()));
 			}
 
 			ConditionType_t conditionType = CONDITION_NONE;
 			int32_t minDamage = 0;
 			int32_t maxDamage = 0;
-			int32_t startDamage = 0;
 			uint32_t tickInterval = 2000;
 
-			if(readXMLInteger(node, "fire", intValue))
-			{
+			if ((attr = node.attribute("fire"))) {
 				conditionType = CONDITION_FIRE;
 
-				minDamage = intValue;
-				maxDamage = intValue;
+				minDamage = pugi::cast<int32_t>(attr.value());
+				maxDamage = minDamage;
 				tickInterval = 9000;
-			}
-			else if(readXMLInteger(node, "poison", intValue))
-			{
+			} else if ((attr = node.attribute("poison"))) {
 				conditionType = CONDITION_POISON;
 
-				minDamage = intValue;
-				maxDamage = intValue;
+				minDamage = pugi::cast<int32_t>(attr.value());
+				maxDamage = minDamage;
 				tickInterval = 5000;
-			}
-			else if(readXMLInteger(node, "energy", intValue))
-			{
+			} else if ((attr = node.attribute("energy"))) {
 				conditionType = CONDITION_ENERGY;
 
-				minDamage = intValue;
-				maxDamage = intValue;
+				minDamage = pugi::cast<int32_t>(attr.value());
+				maxDamage = minDamage;
 				tickInterval = 10000;
-			}
-			else if(readXMLInteger(node, "drown", intValue))
-			{
+			} else if ((attr = node.attribute("drown"))) {
 				conditionType = CONDITION_DROWN;
 
-				minDamage = intValue;
-				maxDamage = intValue;
+				minDamage = pugi::cast<int32_t>(attr.value());
+				maxDamage = minDamage;
 				tickInterval = 5000;
-			}
-			else if(readXMLInteger(node, "freeze", intValue))
-			{
+			} else if ((attr = node.attribute("freeze"))) {
 				conditionType = CONDITION_FREEZING;
 
-				minDamage = intValue;
-				maxDamage = intValue;
+				minDamage = pugi::cast<int32_t>(attr.value());
+				maxDamage = minDamage;
 				tickInterval = 8000;
-			}
-			else if(readXMLInteger(node, "dazzle", intValue))
-			{
+			} else if ((attr = node.attribute("dazzle"))) {
 				conditionType = CONDITION_DAZZLED;
 
-				minDamage = intValue;
-				maxDamage = intValue;
+				minDamage = pugi::cast<int32_t>(attr.value());
+				maxDamage = minDamage;
 				tickInterval = 10000;
-			}
-			else if(readXMLInteger(node, "curse", intValue))
-			{
+			} else if ((attr = node.attribute("curse"))) {
 				conditionType = CONDITION_CURSED;
 
-				minDamage = intValue;
-				maxDamage = intValue;
+				minDamage = pugi::cast<int32_t>(attr.value());
+				maxDamage = minDamage;
 				tickInterval = 4000;
+			} else if ((attr = node.attribute("bleed")) || (attr = node.attribute("physical"))) {
+				conditionType = CONDITION_BLEEDING;
+				tickInterval = 5000;
 			}
 
-			if(readXMLInteger(node, "tick", intValue) && intValue > 0)
-				tickInterval = intValue;
+			if ((attr = node.attribute("tick"))) {
+				int32_t value = pugi::cast<int32_t>(attr.value());
+				if (value > 0) {
+					tickInterval = value;
+				}
+			}
 
-			if(conditionType != CONDITION_NONE)
-			{
-				Condition* condition = getDamageCondition(conditionType, maxDamage, minDamage, startDamage, tickInterval);
+			if (conditionType != CONDITION_NONE) {
+				Condition* condition = getDamageCondition(conditionType, maxDamage, minDamage, 0, tickInterval);
 				combat->setCondition(condition);
 			}
 
 			sb.range = 1;
-			combat->setParam(COMBATPARAM_COMBATTYPE, COMBAT_PHYSICALDAMAGE);
-			combat->setParam(COMBATPARAM_BLOCKEDBYARMOR, 1);
-			combat->setParam(COMBATPARAM_BLOCKEDBYSHIELD, 1);
-		}
-		else if(tmpName == "physical")
-		{
-			combat->setParam(COMBATPARAM_COMBATTYPE, COMBAT_PHYSICALDAMAGE);
-			combat->setParam(COMBATPARAM_BLOCKEDBYARMOR, 1);
-		}
-		else if(tmpName == "poison" || tmpName == "earth")
-			combat->setParam(COMBATPARAM_COMBATTYPE, COMBAT_EARTHDAMAGE);
-		else if(tmpName == "fire")
-			combat->setParam(COMBATPARAM_COMBATTYPE, COMBAT_FIREDAMAGE);
-		else if(tmpName == "energy")
-			combat->setParam(COMBATPARAM_COMBATTYPE, COMBAT_ENERGYDAMAGE);
-		else if(tmpName == "drown")
-			combat->setParam(COMBATPARAM_COMBATTYPE, COMBAT_DROWNDAMAGE);
-		else if(tmpName == "ice")
-			combat->setParam(COMBATPARAM_COMBATTYPE, COMBAT_ICEDAMAGE);
-		else if(tmpName == "holy")
-			combat->setParam(COMBATPARAM_COMBATTYPE, COMBAT_HOLYDAMAGE);
-		else if(tmpName == "death")
-			combat->setParam(COMBATPARAM_COMBATTYPE, COMBAT_DEATHDAMAGE);
-		else if(tmpName == "lifedrain")
-			combat->setParam(COMBATPARAM_COMBATTYPE, COMBAT_LIFEDRAIN);
-		else if(tmpName == "manadrain")
-			combat->setParam(COMBATPARAM_COMBATTYPE, COMBAT_MANADRAIN);
-		else if(tmpName == "healing")
-		{
-			combat->setParam(COMBATPARAM_COMBATTYPE, COMBAT_HEALING);
-			combat->setParam(COMBATPARAM_AGGRESSIVE, 0);
-		}
-		else if(tmpName == "speed")
-		{
+			combat->setParam(COMBAT_PARAM_TYPE, COMBAT_PHYSICALDAMAGE);
+			combat->setParam(COMBAT_PARAM_BLOCKARMOR, 1);
+			combat->setParam(COMBAT_PARAM_BLOCKSHIELD, 1);
+		} else if (tmpName == "physical") {
+			combat->setParam(COMBAT_PARAM_TYPE, COMBAT_PHYSICALDAMAGE);
+			combat->setParam(COMBAT_PARAM_BLOCKARMOR, 1);
+		} else if (tmpName == "bleed") {
+			combat->setParam(COMBAT_PARAM_TYPE, COMBAT_PHYSICALDAMAGE);
+		} else if (tmpName == "poison" || tmpName == "earth") {
+			combat->setParam(COMBAT_PARAM_TYPE, COMBAT_EARTHDAMAGE);
+		} else if (tmpName == "fire") {
+			combat->setParam(COMBAT_PARAM_TYPE, COMBAT_FIREDAMAGE);
+		} else if (tmpName == "energy") {
+			combat->setParam(COMBAT_PARAM_TYPE, COMBAT_ENERGYDAMAGE);
+		} else if (tmpName == "drown") {
+			combat->setParam(COMBAT_PARAM_TYPE, COMBAT_DROWNDAMAGE);
+		} else if (tmpName == "ice") {
+			combat->setParam(COMBAT_PARAM_TYPE, COMBAT_ICEDAMAGE);
+		} else if (tmpName == "holy") {
+			combat->setParam(COMBAT_PARAM_TYPE, COMBAT_HOLYDAMAGE);
+		} else if (tmpName == "death") {
+			combat->setParam(COMBAT_PARAM_TYPE, COMBAT_DEATHDAMAGE);
+		} else if (tmpName == "lifedrain") {
+			combat->setParam(COMBAT_PARAM_TYPE, COMBAT_LIFEDRAIN);
+		} else if (tmpName == "manadrain") {
+			combat->setParam(COMBAT_PARAM_TYPE, COMBAT_MANADRAIN);
+		} else if (tmpName == "healing") {
+			combat->setParam(COMBAT_PARAM_TYPE, COMBAT_HEALING);
+			combat->setParam(COMBAT_PARAM_AGGRESSIVE, 0);
+		} else if (tmpName == "speed") {
 			int32_t speedChange = 0;
 			int32_t duration = 10000;
 
-			if(readXMLInteger(node, "duration", intValue))
-				duration = intValue;
+			if ((attr = node.attribute("duration"))) {
+				duration = pugi::cast<int32_t>(attr.value());
+			}
 
-			if(readXMLInteger(node, "speedchange", intValue))
-			{
-				speedChange = intValue;
-				if(speedChange < -1000)
-				{
+			if ((attr = node.attribute("speedchange"))) {
+				speedChange = pugi::cast<int32_t>(attr.value());
+				if (speedChange < -1000) {
 					//cant be slower than 100%
 					speedChange = -1000;
 				}
 			}
 
 			ConditionType_t conditionType;
-			if(speedChange > 0)
-			{
+			if (speedChange > 0) {
 				conditionType = CONDITION_HASTE;
-				combat->setParam(COMBATPARAM_AGGRESSIVE, 0);
-			}
-			else
+				combat->setParam(COMBAT_PARAM_AGGRESSIVE, 0);
+			} else {
 				conditionType = CONDITION_PARALYZE;
+			}
 
-			ConditionSpeed* condition = dynamic_cast<ConditionSpeed*>(Condition::createCondition(CONDITIONID_COMBAT, conditionType, duration, 0));
+			ConditionSpeed* condition = static_cast<ConditionSpeed*>(Condition::createCondition(CONDITIONID_COMBAT, conditionType, duration, 0));
 			condition->setFormulaVars(speedChange / 1000.0, 0, speedChange / 1000.0, 0);
 			combat->setCondition(condition);
-		}
-		else if(tmpName == "outfit")
-		{
+		} else if (tmpName == "outfit") {
 			int32_t duration = 10000;
 
-			if(readXMLInteger(node, "duration", intValue))
-				duration = intValue;
+			if ((attr = node.attribute("duration"))) {
+				duration = pugi::cast<int32_t>(attr.value());
+			}
 
-			if(readXMLString(node, "monster", strValue))
-			{
-				MonsterType* mType = g_monsters.getMonsterType(strValue);
-				if(mType)
-				{
+			if ((attr = node.attribute("monster"))) {
+				MonsterType* mType = g_monsters.getMonsterType(attr.as_string());
+				if (mType) {
 					ConditionOutfit* condition = dynamic_cast<ConditionOutfit*>(Condition::createCondition(CONDITIONID_COMBAT, CONDITION_OUTFIT, duration, 0));
 					condition->addOutfit(mType->outfit);
-					combat->setParam(COMBATPARAM_AGGRESSIVE, 0);
+					combat->setParam(COMBAT_PARAM_AGGRESSIVE, 0);
 					combat->setCondition(condition);
 				}
-			}
-			else if(readXMLInteger(node, "item", intValue))
-			{
+			} else if ((attr = node.attribute("item"))) {
 				Outfit_t outfit;
-				outfit.lookTypeEx = intValue;
+				outfit.lookTypeEx = pugi::cast<uint16_t>(attr.value());
 
 				ConditionOutfit* condition = dynamic_cast<ConditionOutfit*>(Condition::createCondition(CONDITIONID_COMBAT, CONDITION_OUTFIT, duration, 0));
 				condition->addOutfit(outfit);
-				combat->setParam(COMBATPARAM_AGGRESSIVE, 0);
+				combat->setParam(COMBAT_PARAM_AGGRESSIVE, 0);
 				combat->setCondition(condition);
 			}
-		}
-		else if(tmpName == "invisible")
-		{
+		} else if (tmpName == "invisible") {
 			int32_t duration = 10000;
 
-			if(readXMLInteger(node, "duration", intValue))
-				duration = intValue;
+			if ((attr = node.attribute("duration"))) {
+				duration = pugi::cast<int32_t>(attr.value());
+			}
 
 			Condition* condition = Condition::createCondition(CONDITIONID_COMBAT, CONDITION_INVISIBLE, duration, 0);
-			combat->setParam(COMBATPARAM_AGGRESSIVE, 0);
+			combat->setParam(COMBAT_PARAM_AGGRESSIVE, 0);
 			combat->setCondition(condition);
-		}
-		else if(tmpName == "drunk")
-		{
+		} else if (tmpName == "drunk") {
 			int32_t duration = 10000;
 
-			if(readXMLInteger(node, "duration", intValue))
-				duration = intValue;
+			if ((attr = node.attribute("duration"))) {
+				duration = pugi::cast<int32_t>(attr.value());
+			}
 
 			Condition* condition = Condition::createCondition(CONDITIONID_COMBAT, CONDITION_DRUNK, duration, 0);
 			combat->setCondition(condition);
-		}
-		else if(tmpName == "firefield")
-			combat->setParam(COMBATPARAM_CREATEITEM, 1487);
-		else if(tmpName == "poisonfield")
-			combat->setParam(COMBATPARAM_CREATEITEM, 1490);
-		else if(tmpName == "energyfield")
-			combat->setParam(COMBATPARAM_CREATEITEM, 1491);
-		else if(tmpName == "firecondition" ||
-				tmpName == "poisoncondition" ||
-				tmpName == "energycondition" ||
-				tmpName == "drowncondition" ||
-				tmpName == "freezecondition" ||
-				tmpName == "cursecondition" ||
-				tmpName == "dazzlecondition")
-		{
+		} else if (tmpName == "firefield") {
+			combat->setParam(COMBAT_PARAM_CREATEITEM, ITEM_FIREFIELD_PVP_FULL);
+		} else if (tmpName == "poisonfield") {
+			combat->setParam(COMBAT_PARAM_CREATEITEM, ITEM_POISONFIELD_PVP);
+		} else if (tmpName == "energyfield") {
+			combat->setParam(COMBAT_PARAM_CREATEITEM, ITEM_ENERGYFIELD_PVP);
+		} else if (tmpName == "firecondition" || tmpName == "energycondition" ||
+		           tmpName == "earthcondition" || tmpName == "poisoncondition" ||
+		           tmpName == "icecondition" || tmpName == "freezecondition" ||
+		           tmpName == "deathcondition" || tmpName == "cursecondition" ||
+		           tmpName == "holycondition" || tmpName == "dazzlecondition" ||
+		           tmpName == "drowncondition" || tmpName == "bleedcondition" ||
+		           tmpName == "physicalcondition") {
 			ConditionType_t conditionType = CONDITION_NONE;
 			uint32_t tickInterval = 2000;
 
-			if(tmpName == "firecondition")
-			{
+			if (tmpName == "firecondition") {
 				conditionType = CONDITION_FIRE;
 				tickInterval = 10000;
-			}
-			else if(tmpName == "poisoncondition")
-			{
+			} else if (tmpName == "poisoncondition" || tmpName == "earthcondition") {
 				conditionType = CONDITION_POISON;
 				tickInterval = 5000;
-			}
-			else if(tmpName == "energycondition")
-			{
+			} else if (tmpName == "energycondition") {
 				conditionType = CONDITION_ENERGY;
 				tickInterval = 10000;
-			}
-			else if(tmpName == "drowncondition")
-			{
+			} else if (tmpName == "drowncondition") {
 				conditionType = CONDITION_DROWN;
 				tickInterval = 5000;
-			}
-			else if(tmpName == "freezecondition")
-			{
+			} else if (tmpName == "freezecondition" || tmpName == "icecondition") {
 				conditionType = CONDITION_FREEZING;
 				tickInterval = 10000;
-			}
-			else if(tmpName == "cursecondition")
-			{
+			} else if (tmpName == "cursecondition" || tmpName == "deathcondition") {
 				conditionType = CONDITION_CURSED;
 				tickInterval = 4000;
-			}
-			else if(tmpName == "dazzlecondition")
-			{
+			} else if (tmpName == "dazzlecondition" || tmpName == "holycondition") {
 				conditionType = CONDITION_DAZZLED;
 				tickInterval = 10000;
+			} else if (tmpName == "physicalcondition" || tmpName == "bleedcondition") {
+				conditionType = CONDITION_BLEEDING;
+				tickInterval = 5000;
 			}
 
-			if(readXMLInteger(node, "tick", intValue) && intValue > 0)
-				tickInterval = intValue;
+			if ((attr = node.attribute("tick"))) {
+				int32_t value = pugi::cast<int32_t>(attr.value());
+				if (value > 0) {
+					tickInterval = value;
+				}
+			}
 
 			int32_t minDamage = std::abs(sb.minCombatValue);
 			int32_t maxDamage = std::abs(sb.maxCombatValue);
 			int32_t startDamage = 0;
 
-			if(readXMLInteger(node, "start", intValue))
-			{
-				intValue = std::abs(intValue);
-				if(intValue <= minDamage)
-					startDamage = intValue;
+			if ((attr = node.attribute("start"))) {
+				int32_t value = std::abs(pugi::cast<int32_t>(attr.value()));
+				if (value <= minDamage) {
+					startDamage = value;
+				}
 			}
 
 			Condition* condition = getDamageCondition(conditionType, maxDamage, minDamage, startDamage, tickInterval);
 			combat->setCondition(condition);
-		}
-		else if(tmpName == "strength")
-		{
+		} else if (tmpName == "strength") {
 			//
-		}
-		else
-		{
-			std::cout << "Error: [Monsters::deserializeSpell] - " << description <<  " - Unknown spell name: " << name << std::endl;
+		} else if (tmpName == "effect") {
+			//
+		} else {
+			std::cout << "[Error - Monsters::deserializeSpell] - " << description << " - Unknown spell name: " << name << std::endl;
 			delete combat;
 			return false;
 		}
 
-		combat->setPlayerCombatValues(FORMULA_VALUE, sb.minCombatValue, 0, sb.maxCombatValue, 0);
+		combat->setPlayerCombatValues(COMBAT_FORMULA_DAMAGE, sb.minCombatValue, 0, sb.maxCombatValue, 0);
 		combatSpell = new CombatSpell(combat, needTarget, needDirection);
 
-		xmlNodePtr attributeNode = node->children;
-
-		while(attributeNode)
-		{
-			if(xmlStrcmp(attributeNode->name, (const xmlChar*)"attribute") == 0)
-			{
-				if(readXMLString(attributeNode, "key", strValue))
-				{
-					std::string tmpStrValue = asLowerCaseString(strValue);
-					if(tmpStrValue == "shooteffect")
-					{
-						if(readXMLString(attributeNode, "value", strValue))
-						{
-							ShootType_t shoot = getShootType(strValue);
-							if(shoot != NM_SHOOT_UNK)
-								combat->setParam(COMBATPARAM_DISTANCEEFFECT, shoot);
-							else
-								std::cout << "Warning: [Monsters::deserializeSpell] - "  << description << " - Unknown shootEffect: " << strValue << std::endl;
+		for (pugi::xml_node attributeNode = node.first_child(); attributeNode; attributeNode = attributeNode.next_sibling()) {
+			if ((attr = attributeNode.attribute("key"))) {
+				std::string tmpStrValue = asLowerCaseString(attr.as_string());
+				if (tmpStrValue == "shooteffect") {
+					if ((attr = attributeNode.attribute("value"))) {
+						ShootType_t shoot = getShootType(attr.as_string());
+						if (shoot != CONST_ANI_UNK) {
+							combat->setParam(COMBAT_PARAM_DISTANCEEFFECT, shoot);
+						} else {
+							std::cout << "[Warning - Monsters::deserializeSpell] " << description << " - Unknown shootEffect: " << attr.as_string() << std::endl;
 						}
 					}
-					else if(tmpStrValue == "areaeffect")
-					{
-						if(readXMLString(attributeNode, "value", strValue))
-						{
-							MagicEffectClasses effect = getMagicEffect(strValue);
-							if(effect != NM_ME_UNK)
-								combat->setParam(COMBATPARAM_EFFECT, effect);
-							else
-								std::cout << "Warning: [Monsters::deserializeSpell] - "  << description << " - Unknown areaEffect: " << strValue << std::endl;
+				} else if (tmpStrValue == "areaeffect") {
+					if ((attr = attributeNode.attribute("value"))) {
+						MagicEffectClasses effect = getMagicEffect(attr.as_string());
+						if (effect != CONST_ME_UNK) {
+							combat->setParam(COMBAT_PARAM_EFFECT, effect);
+						} else {
+							std::cout << "[Warning - Monsters::deserializeSpell] " << description << " - Unknown areaEffect: " << attr.as_string() << std::endl;
 						}
 					}
-					else
-						std::cout << "[Warning - Monsters::deserializeSpells] Effect type \"" << strValue << "\" does not exist." << std::endl;
+				} else {
+					std::cout << "[Warning - Monsters::deserializeSpells] Effect type \"" << attr.as_string() << "\" does not exist." << std::endl;
 				}
 			}
-			attributeNode = attributeNode->next;
 		}
 	}
 
@@ -763,711 +728,564 @@ bool Monsters::deserializeSpell(xmlNodePtr node, spellBlock_t& sb, const std::st
 	return true;
 }
 
-#define SHOW_XML_WARNING(desc) std::cout << "[Warning - Monsters::loadMonster] " << desc << ". " << file << std::endl;
-#define SHOW_XML_ERROR(desc) std::cout << "[Error - Monsters::loadMonster] " << desc << ". " << file << std::endl;
-
 bool Monsters::loadMonster(const std::string& file, const std::string& monster_name, bool reloading /*= false*/)
 {
-	bool monsterLoad;
-	MonsterType* mType = NULL;
+	MonsterType* mType = nullptr;
 	bool new_mType = true;
 
-	if(reloading)
-	{
+	if (reloading) {
 		uint32_t id = getIdByName(monster_name);
-		if(id != 0)
-		{
+		if (id != 0) {
 			mType = getMonsterType(id);
-			if(mType != NULL)
-			{
+			if (mType != nullptr) {
 				new_mType = false;
 				mType->reset();
 			}
 		}
 	}
-	if(new_mType)
+
+	if (new_mType) {
 		mType = new MonsterType();
-
-	monsterLoad = true;
-	xmlDocPtr doc = xmlParseFile(file.c_str());
-
-	if(doc)
-	{
-		xmlNodePtr root, p;
-		root = xmlDocGetRootElement(doc);
-
-		if(xmlStrcmp(root->name,(const xmlChar*)"monster") != 0)
-			std::cerr << "Malformed XML: " << file << std::endl;
-
-		int intValue;
-		std::string strValue;
-
-		p = root->children;
-
-		if(readXMLString(root, "name", strValue))
-			mType->name = strValue;
-		else
-			monsterLoad = false;
-
-		if(readXMLString(root, "nameDescription", strValue))
-			mType->nameDescription = strValue;
-		else
-		{
-			mType->nameDescription = "a " + mType->name;
-			toLowerCaseString(mType->nameDescription);
-		}
-
-		if(readXMLString(root, "race", strValue))
-		{
-			std::string tmpStrValue = asLowerCaseString(strValue);
-			if(tmpStrValue == "venom" || atoi(strValue.c_str()) == 1)
-				mType->race = RACE_VENOM;
-			else if(tmpStrValue == "blood" || atoi(strValue.c_str()) == 2)
-				mType->race = RACE_BLOOD;
-			else if(tmpStrValue == "undead" || atoi(strValue.c_str()) == 3)
-				mType->race = RACE_UNDEAD;
-			else if(tmpStrValue == "fire" || atoi(strValue.c_str()) == 4)
-				mType->race = RACE_FIRE;
-			else if(tmpStrValue == "energy" || atoi(strValue.c_str()) == 5)
-				mType->race = RACE_ENERGY;
-			else
-				SHOW_XML_WARNING("Unknown race type " << strValue);
-		}
-
-		if(readXMLInteger(root, "experience", intValue))
-			mType->experience = intValue;
-
-		if(readXMLInteger(root, "speed", intValue))
-			mType->base_speed = intValue;
-
-		if(readXMLInteger(root, "manacost", intValue))
-			mType->manaCost = intValue;
-
-		while(p)
-		{
-			if(p->type != XML_ELEMENT_NODE)
-			{
-				p = p->next;
-				continue;
-			}
-
-			if(xmlStrcmp(p->name, (const xmlChar*)"health") == 0)
-			{
-				if(readXMLInteger(p, "now", intValue))
-					mType->health = intValue;
-				else
-				{
-					SHOW_XML_ERROR("Missing health.now");
-					monsterLoad = false;
-				}
-
-				if(readXMLInteger(p, "max", intValue))
-					mType->health_max = intValue;
-				else
-				{
-					SHOW_XML_ERROR("Missing health.max");
-					monsterLoad = false;
-				}
-			}
-			else if(xmlStrcmp(p->name, (const xmlChar*)"flags") == 0)
-			{
-				xmlNodePtr tmpNode = p->children;
-				while(tmpNode)
-				{
-					if(xmlStrcmp(tmpNode->name, (const xmlChar*)"flag") == 0)
-					{
-						if(readXMLInteger(tmpNode, "summonable", intValue))
-							mType->isSummonable = (intValue != 0);
-
-						if(readXMLInteger(tmpNode, "attackable", intValue))
-							mType->isAttackable = (intValue != 0);
-
-						if(readXMLInteger(tmpNode, "hostile", intValue))
-							mType->isHostile = (intValue != 0);
-
-						if(readXMLInteger(tmpNode, "illusionable", intValue))
-							mType->isIllusionable = (intValue != 0);
-
-						if(readXMLInteger(tmpNode, "convinceable", intValue))
-							mType->isConvinceable = (intValue != 0);
-
-						if(readXMLInteger(tmpNode, "pushable", intValue))
-							mType->pushable = (intValue != 0);
-
-						if(readXMLInteger(tmpNode, "canpushitems", intValue))
-							mType->canPushItems = (intValue != 0);
-
-						if(readXMLInteger(tmpNode, "canpushcreatures", intValue))
-							mType->canPushCreatures = (intValue != 0);
-
-						if(readXMLInteger(tmpNode, "staticattack", intValue))
-						{
-							if(intValue < 0)
-							{
-								SHOW_XML_WARNING("staticattack lower than 0");
-								intValue = 0;
-							}
-
-							if(intValue > 100)
-							{
-								SHOW_XML_WARNING("staticattack greater than 100");
-								intValue = 100;
-							}
-							mType->staticAttackChance = intValue;
-						}
-
-						if(readXMLInteger(tmpNode, "lightlevel", intValue))
-							mType->lightLevel = intValue;
-
-						if(readXMLInteger(tmpNode, "lightcolor", intValue))
-							mType->lightColor = intValue;
-
-						if(readXMLInteger(tmpNode, "targetdistance", intValue))
-						{
-							/*if(intValue > 6){
-								SHOW_XML_WARNING("targetdistance greater than 6");
-							}*/
-							mType->targetDistance = std::max(1, intValue);
-						}
-
-						if(readXMLInteger(tmpNode, "runonhealth", intValue))
-							mType->runAwayHealth = intValue;
-					}
-					tmpNode = tmpNode->next;
-				}
-				//if a monster can push creatures,
-				// it should not be pushable
-				if(mType->canPushCreatures && mType->pushable)
-					mType->pushable = false;
-			}
-			else if(xmlStrcmp(p->name, (const xmlChar*)"targetchange") == 0)
-			{
-				if(readXMLInteger(p, "speed", intValue) || readXMLInteger(p, "interval", intValue))
-					mType->changeTargetSpeed = std::max(1, intValue);
-				else
-					SHOW_XML_WARNING("Missing targetchange.speed");
-
-				if(readXMLInteger(p, "chance", intValue))
-					mType->changeTargetChance = intValue;
-				else
-					SHOW_XML_WARNING("Missing targetchange.chance");
-			}
-			else if(xmlStrcmp(p->name, (const xmlChar*)"strategy") == 0)
-			{
-				if(readXMLInteger(p, "attack", intValue))
-				{
-					//mType->attackStrength = intValue;
-				}
-
-				if(readXMLInteger(p, "defense", intValue))
-				{
-					//mType->defenseStrength = intValue;
-				}
-			}
-			else if(xmlStrcmp(p->name, (const xmlChar*)"look") == 0)
-			{
-				if(readXMLInteger(p, "type", intValue))
-				{
-					mType->outfit.lookType = intValue;
-					if(readXMLInteger(p, "head", intValue))
-						mType->outfit.lookHead = intValue;
-
-					if(readXMLInteger(p, "body", intValue))
-						mType->outfit.lookBody = intValue;
-
-					if(readXMLInteger(p, "legs", intValue))
-						mType->outfit.lookLegs = intValue;
-
-					if(readXMLInteger(p, "feet", intValue))
-						mType->outfit.lookFeet = intValue;
-
-					if(readXMLInteger(p, "addons", intValue))
-						mType->outfit.lookAddons = intValue;
-				}
-				else if(readXMLInteger(p, "typeex", intValue))
-					mType->outfit.lookTypeEx = intValue;
-				else
-					SHOW_XML_WARNING("Missing look type/typeex");
-
-				if(readXMLInteger(p, "corpse", intValue))
-					mType->lookcorpse = intValue;
-			}
-			else if(xmlStrcmp(p->name, (const xmlChar*)"attacks") == 0)
-			{
-				xmlNodePtr tmpNode = p->children;
-				while(tmpNode)
-				{
-					if(xmlStrcmp(tmpNode->name, (const xmlChar*)"attack") == 0)
-					{
-						spellBlock_t sb;
-						if(deserializeSpell(tmpNode, sb, monster_name))
-							mType->spellAttackList.push_back(sb);
-						else
-							SHOW_XML_WARNING("Cant load spell");
-					}
-					tmpNode = tmpNode->next;
-				}
-			}
-			else if(xmlStrcmp(p->name, (const xmlChar*)"defenses") == 0)
-			{
-				if(readXMLInteger(p, "defense", intValue))
-					mType->defense = intValue;
-
-				if(readXMLInteger(p, "armor", intValue))
-					mType->armor = intValue;
-
-				xmlNodePtr tmpNode = p->children;
-				while(tmpNode)
-				{
-					if(xmlStrcmp(tmpNode->name, (const xmlChar*)"defense") == 0)
-					{
-						spellBlock_t sb;
-						if(deserializeSpell(tmpNode, sb, monster_name))
-							mType->spellDefenseList.push_back(sb);
-						else
-							SHOW_XML_WARNING("Cant load spell");
-					}
-					tmpNode = tmpNode->next;
-				}
-			}
-			else if(xmlStrcmp(p->name, (const xmlChar*)"immunities") == 0)
-			{
-				xmlNodePtr tmpNode = p->children;
-				while(tmpNode)
-				{
-					if(xmlStrcmp(tmpNode->name, (const xmlChar*)"immunity") == 0)
-					{
-						if(readXMLString(tmpNode, "name", strValue))
-						{
-							std::string tmpStrValue = asLowerCaseString(strValue);
-							if(tmpStrValue == "physical")
-							{
-								mType->damageImmunities |= COMBAT_PHYSICALDAMAGE;
-								//mType->conditionImmunities |= CONDITION_PHYSICAL;
-							}
-							else if(tmpStrValue == "energy")
-							{
-								mType->damageImmunities |= COMBAT_ENERGYDAMAGE;
-								mType->conditionImmunities |= CONDITION_ENERGY;
-							}
-							else if(tmpStrValue == "fire")
-							{
-								mType->damageImmunities |= COMBAT_FIREDAMAGE;
-								mType->conditionImmunities |= CONDITION_FIRE;
-							}
-							else if(tmpStrValue == "poison" ||
-								tmpStrValue == "earth")
-							{
-								mType->damageImmunities |= COMBAT_EARTHDAMAGE;
-								mType->conditionImmunities |= CONDITION_POISON;
-							}
-							else if(tmpStrValue == "drown")
-							{
-								mType->damageImmunities |= COMBAT_DROWNDAMAGE;
-								mType->conditionImmunities |= CONDITION_DROWN;
-							}
-							else if(tmpStrValue == "ice")
-							{
-								mType->damageImmunities |= COMBAT_ICEDAMAGE;
-								mType->conditionImmunities |= CONDITION_FREEZING;
-							}
-							else if(tmpStrValue == "holy")
-							{
-								mType->damageImmunities |= COMBAT_HOLYDAMAGE;
-								mType->conditionImmunities |= CONDITION_DAZZLED;
-							}
-							else if(tmpStrValue == "death")
-							{
-								mType->damageImmunities |= COMBAT_DEATHDAMAGE;
-								mType->conditionImmunities |= CONDITION_CURSED;
-							}
-							else if(tmpStrValue == "lifedrain")
-							{
-								mType->damageImmunities |= COMBAT_LIFEDRAIN;
-								mType->conditionImmunities |= CONDITION_LIFEDRAIN;
-							}
-							else if(tmpStrValue == "paralyze")
-								mType->conditionImmunities |= CONDITION_PARALYZE;
-							else if(tmpStrValue == "outfit")
-								mType->conditionImmunities |= CONDITION_OUTFIT;
-							else if(tmpStrValue == "drunk")
-								mType->conditionImmunities |= CONDITION_DRUNK;
-							else if(tmpStrValue == "invisible")
-								mType->conditionImmunities |= CONDITION_INVISIBLE;
-							else
-								SHOW_XML_WARNING("Unknown immunity name " << strValue);
-						}
-						//old immunities code
-						else if(readXMLInteger(tmpNode, "physical", intValue))
-						{
-							if(intValue != 0)
-							{
-								mType->damageImmunities |= COMBAT_PHYSICALDAMAGE;
-								//mType->conditionImmunities |= CONDITION_PHYSICAL;
-							}
-						}
-						else if(readXMLInteger(tmpNode, "energy", intValue))
-						{
-							if(intValue != 0)
-							{
-								mType->damageImmunities |= COMBAT_ENERGYDAMAGE;
-								mType->conditionImmunities |= CONDITION_ENERGY;
-							}
-						}
-						else if(readXMLInteger(tmpNode, "fire", intValue))
-						{
-							if(intValue != 0)
-							{
-								mType->damageImmunities |= COMBAT_FIREDAMAGE;
-								mType->conditionImmunities |= CONDITION_FIRE;
-							}
-						}
-						else if(readXMLInteger(tmpNode, "poison", intValue) ||
-							readXMLInteger(tmpNode, "earth", intValue))
-						{
-							if(intValue != 0)
-							{
-								mType->damageImmunities |= COMBAT_EARTHDAMAGE;
-								mType->conditionImmunities |= CONDITION_POISON;
-							}
-						}
-						else if(readXMLInteger(tmpNode, "drown", intValue))
-						{
-							if(intValue != 0)
-							{
-								mType->damageImmunities |= COMBAT_DROWNDAMAGE;
-								mType->conditionImmunities |= CONDITION_DROWN;
-							}
-						}
-						else if(readXMLInteger(tmpNode, "ice", intValue))
-						{
-							if(intValue != 0)
-							{
-								mType->damageImmunities |= COMBAT_ICEDAMAGE;
-								mType->conditionImmunities |= CONDITION_FREEZING;
-							}
-						}
-						else if(readXMLInteger(tmpNode, "holy", intValue))
-						{
-							if(intValue != 0)
-							{
-								mType->damageImmunities |= COMBAT_HOLYDAMAGE;
-								mType->conditionImmunities |= CONDITION_DAZZLED;
-							}
-						}
-						else if(readXMLInteger(tmpNode, "death", intValue))
-						{
-							if(intValue != 0)
-							{
-								mType->damageImmunities |= COMBAT_DEATHDAMAGE;
-								mType->conditionImmunities |= CONDITION_CURSED;
-							}
-						}
-						else if(readXMLInteger(tmpNode, "lifedrain", intValue))
-						{
-							if(intValue != 0)
-							{
-								mType->damageImmunities |= COMBAT_LIFEDRAIN;
-								mType->conditionImmunities |= CONDITION_LIFEDRAIN;
-							}
-						}
-						else if(readXMLInteger(tmpNode, "paralyze", intValue))
-						{
-							if(intValue != 0)
-								mType->conditionImmunities |= CONDITION_PARALYZE;
-						}
-						else if(readXMLInteger(tmpNode, "outfit", intValue))
-						{
-							if(intValue != 0)
-								mType->conditionImmunities |= CONDITION_OUTFIT;
-						}
-						else if(readXMLInteger(tmpNode, "drunk", intValue))
-						{
-							if(intValue != 0)
-								mType->conditionImmunities |= CONDITION_DRUNK;
-						}
-						else if(readXMLInteger(tmpNode, "invisible", intValue))
-						{
-							if(intValue != 0)
-								mType->conditionImmunities |= CONDITION_INVISIBLE;
-						}
-						else
-							SHOW_XML_WARNING("Unknown immunity " << strValue);
-					}
-					tmpNode = tmpNode->next;
-				}
-			}
-			else if(xmlStrcmp(p->name, (const xmlChar*)"voices") == 0)
-			{
-				xmlNodePtr tmpNode = p->children;
-				if(readXMLInteger(p, "speed", intValue) || readXMLInteger(p, "interval", intValue))
-					mType->yellSpeedTicks = intValue;
-				else
-					SHOW_XML_WARNING("Missing voices.speed");
-
-				if(readXMLInteger(p, "chance", intValue))
-					mType->yellChance = intValue;
-				else
-					SHOW_XML_WARNING("Missing voices.chance");
-
-				while(tmpNode)
-				{
-					if(xmlStrcmp(tmpNode->name, (const xmlChar*)"voice") == 0)
-					{
-						voiceBlock_t vb;
-						vb.text = "";
-						vb.yellText = false;
-
-						if(readXMLString(tmpNode, "sentence", strValue))
-							vb.text = strValue;
-						else
-							SHOW_XML_WARNING("Missing voice.sentence");
-
-						if(readXMLInteger(tmpNode, "yell", intValue))
-							vb.yellText = (intValue != 0);
-
-						mType->voiceVector.push_back(vb);
-					}
-					tmpNode = tmpNode->next;
-				}
-			}
-			else if(xmlStrcmp(p->name, (const xmlChar*)"loot") == 0)
-			{
-				xmlNodePtr tmpNode = p->children;
-				while(tmpNode)
-				{
-					if(tmpNode->type != XML_ELEMENT_NODE)
-					{
-						tmpNode = tmpNode->next;
-						continue;
-					}
-
-					LootBlock lootBlock;
-					if(loadLootItem(tmpNode, lootBlock))
-						mType->lootItems.push_back(lootBlock);
-					else
-						SHOW_XML_WARNING("Cant load loot");
-
-					tmpNode = tmpNode->next;
-				}
-			}
-			else if(xmlStrcmp(p->name, (const xmlChar*)"elements") == 0)
-			{
-				xmlNodePtr tmpNode = p->children;
-				while(tmpNode)
-				{
-					if(xmlStrcmp(tmpNode->name, (const xmlChar*)"element") == 0)
-					{
-						if(readXMLInteger(tmpNode, "physicalPercent", intValue))
-							mType->elementMap[COMBAT_PHYSICALDAMAGE] = intValue;
-
-						if(readXMLInteger(tmpNode, "icePercent", intValue))
-							mType->elementMap[COMBAT_ICEDAMAGE] = intValue;
-						else if(readXMLInteger(tmpNode, "poisonPercent", intValue) ||
-							readXMLInteger(tmpNode, "earthPercent", intValue))
-						{
-							mType->elementMap[COMBAT_EARTHDAMAGE] = intValue;
-						}
-						else if(readXMLInteger(tmpNode, "firePercent", intValue))
-							mType->elementMap[COMBAT_FIREDAMAGE] = intValue;
-						else if(readXMLInteger(tmpNode, "energyPercent", intValue))
-							mType->elementMap[COMBAT_ENERGYDAMAGE] = intValue;
-						else if(readXMLInteger(tmpNode, "holyPercent", intValue))
-							mType->elementMap[COMBAT_HOLYDAMAGE] = intValue;
-						else if(readXMLInteger(tmpNode, "deathPercent", intValue))
-							mType->elementMap[COMBAT_DEATHDAMAGE] = intValue;
-						else if(readXMLInteger(tmpNode, "drownPercent", intValue))
-							mType->elementMap[COMBAT_DROWNDAMAGE] = intValue;
-						else if(readXMLInteger(tmpNode, "lifedrainPercent", intValue))
-							mType->elementMap[COMBAT_LIFEDRAIN] = intValue;
-						else if(!readXMLInteger(tmpNode, "physicalPercent", intValue))
-							SHOW_XML_WARNING("Unknown element percent");
-					}
-					tmpNode = tmpNode->next;
-				}
-			}
-			else if(xmlStrcmp(p->name, (const xmlChar*)"summons") == 0)
-			{
-				if(readXMLInteger(p, "maxSummons", intValue))
-					mType->maxSummons = std::min(intValue, 100);
-				else
-					SHOW_XML_WARNING("Missing summons.maxSummons");
-
-				xmlNodePtr tmpNode = p->children;
-				while(tmpNode)
-				{
-					if(xmlStrcmp(tmpNode->name, (const xmlChar*)"summon") == 0)
-					{
-						int32_t chance = 100;
-						int32_t speed = 1000;
-
-						if(readXMLInteger(tmpNode, "speed", intValue) || readXMLInteger(tmpNode, "interval", intValue))
-							speed = intValue;
-
-						if(readXMLInteger(tmpNode, "chance", intValue))
-							chance = intValue;
-
-						if(readXMLString(tmpNode, "name", strValue))
-						{
-							summonBlock_t sb;
-							sb.name = strValue;
-							sb.speed = speed;
-							sb.chance = chance;
-
-							mType->summonList.push_back(sb);
-						}
-						else
-							SHOW_XML_WARNING("Missing summon.name");
-					}
-					tmpNode = tmpNode->next;
-				}
-			}
-			else if(xmlStrcmp(p->name, (const xmlChar*)"script") == 0)
-			{
-				xmlNodePtr tmpNode = p->children;
-				while(tmpNode)
-				{
-					if(xmlStrcmp(tmpNode->name, (const xmlChar*)"event") == 0)
-					{
-						if(readXMLString(tmpNode, "name", strValue))
-							mType->scriptList.push_back(strValue);
-						else
-							SHOW_XML_WARNING("Missing name for script event");
-					}
-					tmpNode = tmpNode->next;
-				}
-			}
-			else
-				SHOW_XML_WARNING("Unknown attribute type - " << p->name);
-
-			p = p->next;
-		}
-		xmlFreeDoc(doc);
 	}
-	else
-		monsterLoad = false;
 
-	if(monsterLoad)
-	{
-		static uint32_t id = 0;
-		if(new_mType)
-		{
-			std::string lowername = monster_name;
-			toLowerCaseString(lowername);
-
-			id++;
-			monsterNames[lowername] = id;
-			monsters[id] = mType;
-		}
-		return true;
-	}
-	else
-	{
-		if(new_mType)
+	pugi::xml_document doc;
+	pugi::xml_parse_result result = doc.load_file(file.c_str());
+	if (!result) {
+		if (new_mType) {
 			delete mType;
-
+		}
+		std::cout << "[Error - Monsters::loadMonster] Failed to load " << file << ": " << result.description() << std::endl;
 		return false;
 	}
-}
 
-bool Monsters::loadLootItem(xmlNodePtr node, LootBlock& lootBlock)
-{
-	int intValue;
-	std::string strValue;
-
-	if(readXMLInteger(node, "id", intValue))
-		lootBlock.id = intValue;
-
-	if(lootBlock.id == 0)
+	pugi::xml_node monsterNode = doc.child("monster");
+	if (!monsterNode) {
+		if (new_mType) {
+			delete mType;
+		}
+		std::cout << "[Error - Monsters::loadMonster] Missing monster node in: " << file << std::endl;
 		return false;
+	}
 
-	if(readXMLInteger(node, "countmax", intValue))
-		lootBlock.countmax = std::max(1, intValue);
-	else
-		lootBlock.countmax = 1;
+	pugi::xml_attribute attr;
+	if (!(attr = monsterNode.attribute("name"))) {
+		if (new_mType) {
+			delete mType;
+		}
+		std::cout << "[Error - Monsters::loadMonster] Missing name in: " << file << std::endl;
+		return false;
+	}
+	mType->name = attr.as_string();
 
-	if(readXMLInteger(node, "chance", intValue) || readXMLInteger(node, "chance1", intValue))
-		lootBlock.chance = std::min(MAX_LOOTCHANCE, intValue);
-	else
-		lootBlock.chance = MAX_LOOTCHANCE;
+	if ((attr = monsterNode.attribute("nameDescription"))) {
+		mType->nameDescription = attr.as_string();
+	} else {
+		mType->nameDescription = "a " + mType->name;
+		toLowerCaseString(mType->nameDescription);
+	}
 
-	if(Item::items[lootBlock.id].isContainer())
-		loadLootContainer(node, lootBlock);
+	if ((attr = monsterNode.attribute("race"))) {
+		std::string tmpStrValue = asLowerCaseString(attr.as_string());
+		uint16_t tmpInt = pugi::cast<uint16_t>(attr.value());
+		if (tmpStrValue == "venom" || tmpInt == 1) {
+			mType->race = RACE_VENOM;
+		} else if (tmpStrValue == "blood" || tmpInt == 2) {
+			mType->race = RACE_BLOOD;
+		} else if (tmpStrValue == "undead" || tmpInt == 3) {
+			mType->race = RACE_UNDEAD;
+		} else if (tmpStrValue == "fire" || tmpInt == 4) {
+			mType->race = RACE_FIRE;
+		} else if (tmpStrValue == "energy" || tmpInt == 5) {
+			mType->race = RACE_ENERGY;
+		} else {
+			std::cout << "[Warning - Monsters::loadMonster] Unknown race type " << attr.as_string() << ". " << file << std::endl;
+		}
+	}
 
-	//optional
-	if(readXMLInteger(node, "subtype", intValue))
-		lootBlock.subType = intValue;
+	if ((attr = monsterNode.attribute("experience"))) {
+		mType->experience = pugi::cast<uint64_t>(attr.value());
+	}
 
-	if(readXMLInteger(node, "actionId", intValue))
-		lootBlock.actionId = intValue;
+	if ((attr = monsterNode.attribute("speed"))) {
+		mType->baseSpeed = pugi::cast<int32_t>(attr.value());
+	}
 
-	if(readXMLString(node, "text", strValue))
-		lootBlock.text = strValue;
+	if ((attr = monsterNode.attribute("manacost"))) {
+		mType->manaCost = pugi::cast<uint32_t>(attr.value());
+	}
 
+	if ((attr = monsterNode.attribute("script"))) {
+		monsterScriptList[mType] = attr.as_string();
+	}
+
+	pugi::xml_node node;
+	if ((node = monsterNode.child("health"))) {
+		if ((attr = node.attribute("now"))) {
+			mType->health = pugi::cast<int32_t>(attr.value());
+		} else {
+			std::cout << "[Error - Monsters::loadMonster] Missing health now. " << file << std::endl;
+		}
+
+		if ((attr = node.attribute("max"))) {
+			mType->healthMax = pugi::cast<int32_t>(attr.value());
+		} else {
+			std::cout << "[Error - Monsters::loadMonster] Missing health max. " << file << std::endl;
+		}
+	}
+
+	if ((node = monsterNode.child("flags"))) {
+		for (pugi::xml_node flagNode = node.first_child(); flagNode; flagNode = flagNode.next_sibling()) {
+			attr = flagNode.first_attribute();
+			const char* attrName = attr.name();
+			if (strcasecmp(attrName, "summonable") == 0) {
+				mType->isSummonable = attr.as_bool();
+			} else if (strcasecmp(attrName, "attackable") == 0) {
+				mType->isAttackable = attr.as_bool();
+			} else if (strcasecmp(attrName, "hostile") == 0) {
+				mType->isHostile = attr.as_bool();
+			} else if (strcasecmp(attrName, "illusionable") == 0) {
+				mType->isIllusionable = attr.as_bool();
+			} else if (strcasecmp(attrName, "convinceable") == 0) {
+				mType->isConvinceable = attr.as_bool();
+			} else if (strcasecmp(attrName, "pushable") == 0) {
+				mType->pushable = attr.as_bool();
+			} else if (strcasecmp(attrName, "canpushitems") == 0) {
+				mType->canPushItems = attr.as_bool();
+			} else if (strcasecmp(attrName, "canpushcreatures") == 0) {
+				mType->canPushCreatures = attr.as_bool();
+			} else if (strcasecmp(attrName, "staticattack") == 0) {
+				uint32_t staticAttack = pugi::cast<uint32_t>(attr.value());
+				if (staticAttack > 100) {
+					std::cout << "[Warning - Monsters::loadMonster] staticattack greater than 100. " << file << std::endl;
+					staticAttack = 100;
+				}
+
+				mType->staticAttackChance = staticAttack;
+			} else if (strcasecmp(attrName, "lightlevel") == 0) {
+				mType->lightLevel = pugi::cast<int32_t>(attr.value());
+			} else if (strcasecmp(attrName, "lightcolor") == 0) {
+				mType->lightColor = pugi::cast<int32_t>(attr.value());
+			} else if (strcasecmp(attrName, "targetdistance") == 0) {
+				mType->targetDistance = std::max<int32_t>(1, pugi::cast<int32_t>(attr.value()));
+			} else if (strcasecmp(attrName, "runonhealth") == 0) {
+				mType->runAwayHealth = pugi::cast<int32_t>(attr.value());
+			} else if (strcasecmp(attrName, "hidehealth") == 0) {
+				mType->hiddenHealth = attr.as_bool();
+			} else {
+				std::cout << "[Warning - Monsters::loadMonster] Unknown flag attribute: " << attrName << ". " << file << std::endl;
+			}
+		}
+
+		//if a monster can push creatures,
+		// it should not be pushable
+		if (mType->canPushCreatures && mType->pushable) {
+			mType->pushable = false;
+		}
+	}
+
+	if ((node = monsterNode.child("targetchange"))) {
+		if ((attr = node.attribute("speed")) || (attr = node.attribute("interval"))) {
+			mType->changeTargetSpeed = std::max<int32_t>(1, pugi::cast<int32_t>(attr.value()));
+		} else {
+			std::cout << "[Warning - Monsters::loadMonster] Missing targetchange speed. " << file << std::endl;
+		}
+
+		if ((attr = node.attribute("chance"))) {
+			mType->changeTargetChance = pugi::cast<int32_t>(attr.value());
+		} else {
+			std::cout << "[Warning - Monsters::loadMonster] Missing targetchange chance. " << file << std::endl;
+		}
+	}
+
+	if ((node = monsterNode.child("look"))) {
+		if ((attr = node.attribute("type"))) {
+			mType->outfit.lookType = pugi::cast<uint16_t>(attr.value());
+
+			if ((attr = node.attribute("head"))) {
+				mType->outfit.lookHead = pugi::cast<uint16_t>(attr.value());
+			}
+
+			if ((attr = node.attribute("body"))) {
+				mType->outfit.lookBody = pugi::cast<uint16_t>(attr.value());
+			}
+
+			if ((attr = node.attribute("legs"))) {
+				mType->outfit.lookLegs = pugi::cast<uint16_t>(attr.value());
+			}
+
+			if ((attr = node.attribute("feet"))) {
+				mType->outfit.lookFeet = pugi::cast<uint16_t>(attr.value());
+			}
+
+			if ((attr = node.attribute("addons"))) {
+				mType->outfit.lookAddons = pugi::cast<uint16_t>(attr.value());
+			}
+		} else if ((attr = node.attribute("typeex"))) {
+			mType->outfit.lookTypeEx = pugi::cast<uint16_t>(attr.value());
+		} else {
+			std::cout << "[Warning - Monsters::loadMonster] Missing look type/typeex. " << file << std::endl;
+		}
+
+		if ((attr = node.attribute("mount"))) {
+			mType->outfit.lookMount = pugi::cast<uint16_t>(attr.value());
+		}
+
+		if ((attr = node.attribute("corpse"))) {
+			mType->lookcorpse = pugi::cast<uint16_t>(attr.value());
+		}
+	}
+
+	if ((node = monsterNode.child("attacks"))) {
+		for (pugi::xml_node attackNode = node.first_child(); attackNode; attackNode = attackNode.next_sibling()) {
+			spellBlock_t sb;
+			if (deserializeSpell(attackNode, sb, monster_name)) {
+				mType->spellAttackList.push_back(sb);
+			} else {
+				std::cout << "[Warning - Monsters::loadMonster] Cant load spell. " << file << std::endl;
+			}
+		}
+	}
+
+	if ((node = monsterNode.child("defenses"))) {
+		if ((attr = node.attribute("defense"))) {
+			mType->defense = pugi::cast<int32_t>(attr.value());
+		}
+
+		if ((attr = node.attribute("armor"))) {
+			mType->armor = pugi::cast<int32_t>(attr.value());
+		}
+
+		for (pugi::xml_node defenseNode = node.first_child(); defenseNode; defenseNode = defenseNode.next_sibling()) {
+			spellBlock_t sb;
+			if (deserializeSpell(defenseNode, sb, monster_name)) {
+				mType->spellDefenseList.push_back(sb);
+			} else {
+				std::cout << "[Warning - Monsters::loadMonster] Cant load spell. " << file << std::endl;
+			}
+		}
+	}
+
+	if ((node = monsterNode.child("immunities"))) {
+		for (pugi::xml_node immunityNode = node.first_child(); immunityNode; immunityNode = immunityNode.next_sibling()) {
+			if ((attr = immunityNode.attribute("name"))) {
+				std::string tmpStrValue = asLowerCaseString(attr.as_string());
+				if (tmpStrValue == "physical") {
+					mType->damageImmunities |= COMBAT_PHYSICALDAMAGE;
+					mType->conditionImmunities |= CONDITION_BLEEDING;
+				} else if (tmpStrValue == "energy") {
+					mType->damageImmunities |= COMBAT_ENERGYDAMAGE;
+					mType->conditionImmunities |= CONDITION_ENERGY;
+				} else if (tmpStrValue == "fire") {
+					mType->damageImmunities |= COMBAT_FIREDAMAGE;
+					mType->conditionImmunities |= CONDITION_FIRE;
+				} else if (tmpStrValue == "poison" ||
+							tmpStrValue == "earth") {
+					mType->damageImmunities |= COMBAT_EARTHDAMAGE;
+					mType->conditionImmunities |= CONDITION_POISON;
+				} else if (tmpStrValue == "drown") {
+					mType->damageImmunities |= COMBAT_DROWNDAMAGE;
+					mType->conditionImmunities |= CONDITION_DROWN;
+				} else if (tmpStrValue == "ice") {
+					mType->damageImmunities |= COMBAT_ICEDAMAGE;
+					mType->conditionImmunities |= CONDITION_FREEZING;
+				} else if (tmpStrValue == "holy") {
+					mType->damageImmunities |= COMBAT_HOLYDAMAGE;
+					mType->conditionImmunities |= CONDITION_DAZZLED;
+				} else if (tmpStrValue == "death") {
+					mType->damageImmunities |= COMBAT_DEATHDAMAGE;
+					mType->conditionImmunities |= CONDITION_CURSED;
+				} else if (tmpStrValue == "lifedrain") {
+					mType->damageImmunities |= COMBAT_LIFEDRAIN;
+				} else if (tmpStrValue == "manadrain") {
+					mType->damageImmunities |= COMBAT_MANADRAIN;
+				} else if (tmpStrValue == "paralyze") {
+					mType->conditionImmunities |= CONDITION_PARALYZE;
+				} else if (tmpStrValue == "outfit") {
+					mType->conditionImmunities |= CONDITION_OUTFIT;
+				} else if (tmpStrValue == "drunk") {
+					mType->conditionImmunities |= CONDITION_DRUNK;
+				} else if (tmpStrValue == "invisible" || tmpStrValue == "invisibility") {
+					mType->conditionImmunities |= CONDITION_INVISIBLE;
+				} else if (tmpStrValue == "bleed") {
+					mType->conditionImmunities |= CONDITION_BLEEDING;
+				} else {
+					std::cout << "[Warning - Monsters::loadMonster] Unknown immunity name " << attr.as_string() << ". " << file << std::endl;
+				}
+			} else if ((attr = immunityNode.attribute("physical"))) {
+				if (attr.as_bool()) {
+					mType->damageImmunities |= COMBAT_PHYSICALDAMAGE;
+					mType->conditionImmunities |= CONDITION_BLEEDING;
+				}
+			} else if ((attr = immunityNode.attribute("energy"))) {
+				if (attr.as_bool()) {
+					mType->damageImmunities |= COMBAT_ENERGYDAMAGE;
+					mType->conditionImmunities |= CONDITION_ENERGY;
+				}
+			} else if ((attr = immunityNode.attribute("fire"))) {
+				if (attr.as_bool()) {
+					mType->damageImmunities |= COMBAT_FIREDAMAGE;
+					mType->conditionImmunities |= CONDITION_FIRE;
+				}
+			} else if ((attr = immunityNode.attribute("poison")) || (attr = immunityNode.attribute("earth"))) {
+				if (attr.as_bool()) {
+					mType->damageImmunities |= COMBAT_EARTHDAMAGE;
+					mType->conditionImmunities |= CONDITION_POISON;
+				}
+			} else if ((attr = immunityNode.attribute("drown"))) {
+				if (attr.as_bool()) {
+					mType->damageImmunities |= COMBAT_DROWNDAMAGE;
+					mType->conditionImmunities |= CONDITION_DROWN;
+				}
+			} else if ((attr = immunityNode.attribute("ice"))) {
+				if (attr.as_bool()) {
+					mType->damageImmunities |= COMBAT_ICEDAMAGE;
+					mType->conditionImmunities |= CONDITION_FREEZING;
+				}
+			} else if ((attr = immunityNode.attribute("holy"))) {
+				if (attr.as_bool()) {
+					mType->damageImmunities |= COMBAT_HOLYDAMAGE;
+					mType->conditionImmunities |= CONDITION_DAZZLED;
+				}
+			} else if ((attr = immunityNode.attribute("death"))) {
+				if (attr.as_bool()) {
+					mType->damageImmunities |= COMBAT_DEATHDAMAGE;
+					mType->conditionImmunities |= CONDITION_CURSED;
+				}
+			} else if ((attr = immunityNode.attribute("lifedrain"))) {
+				if (attr.as_bool()) {
+					mType->damageImmunities |= COMBAT_LIFEDRAIN;
+				}
+			} else if ((attr = immunityNode.attribute("manadrain"))) {
+				if (attr.as_bool()) {
+					mType->damageImmunities |= COMBAT_MANADRAIN;
+				}
+			} else if ((attr = immunityNode.attribute("paralyze"))) {
+				if (attr.as_bool()) {
+					mType->conditionImmunities |= CONDITION_PARALYZE;
+				}
+			} else if ((attr = immunityNode.attribute("outfit"))) {
+				if (attr.as_bool()) {
+					mType->conditionImmunities |= CONDITION_OUTFIT;
+				}
+			} else if ((attr = immunityNode.attribute("bleed"))) {
+				if (attr.as_bool()) {
+					mType->conditionImmunities |= CONDITION_BLEEDING;
+				}
+			} else if ((attr = immunityNode.attribute("drunk"))) {
+				if (attr.as_bool()) {
+					mType->conditionImmunities |= CONDITION_DRUNK;
+				}
+			} else if ((attr = immunityNode.attribute("invisible")) || (attr = immunityNode.attribute("invisibility"))) {
+				if (attr.as_bool()) {
+					mType->conditionImmunities |= CONDITION_INVISIBLE;
+				}
+			} else {
+				std::cout << "[Warning - Monsters::loadMonster] Unknown immunity. " << file << std::endl;
+			}
+		}
+	}
+
+	if ((node = monsterNode.child("voices"))) {
+		if ((attr = node.attribute("speed")) || (attr = node.attribute("interval"))) {
+			mType->yellSpeedTicks = pugi::cast<uint32_t>(attr.value());
+		} else {
+			std::cout << "[Warning - Monsters::loadMonster] Missing voices speed. " << file << std::endl;
+		}
+
+		if ((attr = node.attribute("chance"))) {
+			mType->yellChance = pugi::cast<uint32_t>(attr.value());
+		} else {
+			std::cout << "[Warning - Monsters::loadMonster] Missing voices chance. " << file << std::endl;
+		}
+
+		for (pugi::xml_node voiceNode = node.first_child(); voiceNode; voiceNode = voiceNode.next_sibling()) {
+			voiceBlock_t vb;
+			if ((attr = voiceNode.attribute("sentence"))) {
+				vb.text = attr.as_string();
+			} else {
+				std::cout << "[Warning - Monsters::loadMonster] Missing voice sentence. " << file << std::endl;
+			}
+
+			if ((attr = voiceNode.attribute("yell"))) {
+				vb.yellText = attr.as_bool();
+			} else {
+				vb.yellText = false;
+			}
+			mType->voiceVector.push_back(vb);
+		}
+	}
+
+	if ((node = monsterNode.child("loot"))) {
+		for (pugi::xml_node lootNode = node.first_child(); lootNode; lootNode = lootNode.next_sibling()) {
+			LootBlock lootBlock;
+			if (loadLootItem(lootNode, lootBlock)) {
+				mType->lootItems.push_back(lootBlock);
+			} else {
+				std::cout << "[Warning - Monsters::loadMonster] Cant load loot. " << file << std::endl;
+			}
+		}
+	}
+
+	if ((node = monsterNode.child("elements"))) {
+		for (pugi::xml_node elementNode = node.first_child(); elementNode; elementNode = elementNode.next_sibling()) {
+			if ((attr = elementNode.attribute("physicalPercent"))) {
+				mType->elementMap[COMBAT_PHYSICALDAMAGE] = pugi::cast<int32_t>(attr.value());
+			} else if ((attr = elementNode.attribute("icePercent"))) {
+				mType->elementMap[COMBAT_ICEDAMAGE] = pugi::cast<int32_t>(attr.value());
+			} else if ((attr = elementNode.attribute("poisonPercent")) || (attr = elementNode.attribute("earthPercent"))) {
+				mType->elementMap[COMBAT_EARTHDAMAGE] = pugi::cast<int32_t>(attr.value());
+			} else if ((attr = elementNode.attribute("firePercent"))) {
+				mType->elementMap[COMBAT_FIREDAMAGE] = pugi::cast<int32_t>(attr.value());
+			} else if ((attr = elementNode.attribute("energyPercent"))) {
+				mType->elementMap[COMBAT_ENERGYDAMAGE] = pugi::cast<int32_t>(attr.value());
+			} else if ((attr = elementNode.attribute("holyPercent"))) {
+				mType->elementMap[COMBAT_HOLYDAMAGE] = pugi::cast<int32_t>(attr.value());
+			} else if ((attr = elementNode.attribute("deathPercent"))) {
+				mType->elementMap[COMBAT_DEATHDAMAGE] = pugi::cast<int32_t>(attr.value());
+			} else if ((attr = elementNode.attribute("drownPercent"))) {
+				mType->elementMap[COMBAT_DROWNDAMAGE] = pugi::cast<int32_t>(attr.value());
+			} else if ((attr = elementNode.attribute("lifedrainPercent"))) {
+				mType->elementMap[COMBAT_LIFEDRAIN] = pugi::cast<int32_t>(attr.value());
+			} else if ((attr = elementNode.attribute("manadrainPercent"))) {
+				mType->elementMap[COMBAT_MANADRAIN] = pugi::cast<int32_t>(attr.value());
+			} else {
+				std::cout << "[Warning - Monsters::loadMonster] Unknown element percent. " << file << std::endl;
+			}
+		}
+	}
+
+	if ((node = monsterNode.child("summons"))) {
+		if ((attr = node.attribute("maxSummons"))) {
+			mType->maxSummons = std::min<uint32_t>(pugi::cast<uint32_t>(attr.value()), 100);
+		} else {
+			std::cout << "[Warning - Monsters::loadMonster] Missing summons maxSummons. " << file << std::endl;
+		}
+
+		for (pugi::xml_node summonNode = node.first_child(); summonNode; summonNode = summonNode.next_sibling()) {
+			int32_t chance = 100;
+			int32_t speed = 1000;
+
+			if ((attr = summonNode.attribute("speed")) || (attr = summonNode.attribute("interval"))) {
+				speed = pugi::cast<int32_t>(attr.value());
+			}
+
+			if ((attr = summonNode.attribute("chance"))) {
+				chance = pugi::cast<int32_t>(attr.value());
+			}
+
+			if ((attr = summonNode.attribute("name"))) {
+				summonBlock_t sb;
+				sb.name = attr.as_string();
+				sb.speed = speed;
+				sb.chance = chance;
+				mType->summonList.push_back(sb);
+			} else {
+				std::cout << "[Warning - Monsters::loadMonster] Missing summon name. " << file << std::endl;
+			}
+		}
+	}
+
+	if ((node = monsterNode.child("script"))) {
+		for (pugi::xml_node eventNode = node.first_child(); eventNode; eventNode = eventNode.next_sibling()) {
+			if ((attr = eventNode.attribute("name"))) {
+				mType->scriptList.push_back(attr.as_string());
+			} else {
+				std::cout << "[Warning - Monsters::loadMonster] Missing name for script event. " << file << std::endl;
+			}
+		}
+	}
+
+	static uint32_t id = 0;
+	if (new_mType) {
+		std::string lowername = monster_name;
+		toLowerCaseString(lowername);
+
+		monsterNames[lowername] = ++id;
+		monsters[id] = mType;
+	}
 	return true;
 }
 
-bool Monsters::loadLootContainer(xmlNodePtr node, LootBlock& lBlock)
+bool Monsters::loadLootItem(const pugi::xml_node& node, LootBlock& lootBlock)
 {
-	if(node == NULL)
-		return false;
-
-	xmlNodePtr tmpNode = node->children;
-	xmlNodePtr p;
-
-	if(tmpNode == NULL)
-		return false;
-
-	while(tmpNode)
-	{
-		if(xmlStrcmp(tmpNode->name, (const xmlChar*)"inside") == 0)
-		{
-			p = tmpNode->children;
-			while(p)
-			{
-				LootBlock lootBlock;
-				if(loadLootItem(p, lootBlock))
-					lBlock.childLoot.push_back(lootBlock);
-				p = p->next;
-			}
-			return true;
-		}
-		tmpNode = tmpNode->next;
+	pugi::xml_attribute attr;
+	if ((attr = node.attribute("id"))) {
+		lootBlock.id = pugi::cast<int32_t>(attr.value());
 	}
-	return false;
+
+	if (lootBlock.id == 0) {
+		return false;
+	}
+
+	if ((attr = node.attribute("countmax"))) {
+		lootBlock.countmax = std::max<int32_t>(1, pugi::cast<int32_t>(attr.value()));
+	} else {
+		lootBlock.countmax = 1;
+	}
+
+	if ((attr = node.attribute("chance")) || (attr = node.attribute("chance1"))) {
+		lootBlock.chance = std::min<int32_t>(MAX_LOOTCHANCE, pugi::cast<int32_t>(attr.value()));
+	} else {
+		lootBlock.chance = MAX_LOOTCHANCE;
+	}
+
+	if (Item::items[lootBlock.id].isContainer()) {
+		loadLootContainer(node, lootBlock);
+	}
+
+	//optional
+	if ((attr = node.attribute("subtype"))) {
+		lootBlock.subType = pugi::cast<int32_t>(attr.value());
+	} else {
+		uint32_t charges = Item::items[lootBlock.id].charges;
+		if (charges != 0) {
+			lootBlock.subType = charges;
+		}
+	}
+
+	if ((attr = node.attribute("actionId"))) {
+		lootBlock.actionId = pugi::cast<int32_t>(attr.value());
+	}
+
+	if ((attr = node.attribute("text"))) {
+		lootBlock.text = attr.as_string();
+	}
+	return true;
+}
+
+void Monsters::loadLootContainer(const pugi::xml_node& node, LootBlock& lBlock)
+{
+	for (pugi::xml_node subNode = node.first_child(); subNode; subNode = subNode.next_sibling()) {
+		LootBlock lootBlock;
+		if (loadLootItem(subNode, lootBlock)) {
+			lBlock.childLoot.push_back(lootBlock);
+		}
+	}
 }
 
 MonsterType* Monsters::getMonsterType(const std::string& name)
 {
 	uint32_t mId = getIdByName(name);
-	if(mId == 0)
-		return NULL;
-
+	if (mId == 0) {
+		return nullptr;
+	}
 	return getMonsterType(mId);
 }
 
 MonsterType* Monsters::getMonsterType(uint32_t mid)
 {
-	MonsterMap::iterator it = monsters.find(mid);
-	if(it != monsters.end())
-		return it->second;
-	else
-		return NULL;
+	auto it = monsters.find(mid);
+	if (it == monsters.end()) {
+		return nullptr;
+	}
+	return it->second;
 }
 
 uint32_t Monsters::getIdByName(const std::string& name)
 {
-	std::string lower_name = name;
-	std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), tolower);
-	MonsterNameMap::iterator it = monsterNames.find(lower_name);
-	if(it != monsterNames.end())
-		return it->second;
-	else
+	auto it = monsterNames.find(asLowerCaseString(name));
+	if (it == monsterNames.end()) {
 		return 0;
-}
-
-Monsters::~Monsters()
-{
-	for(MonsterMap::iterator it = monsters.begin(); it != monsters.end(); it++)
-		delete it->second;
+	}
+	return it->second;
 }
