@@ -1,78 +1,179 @@
-/**
- * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2014  Mark Samman <mark.samman@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+//////////////////////////////////////////////////////////////////////
+// OpenTibia - an opensource roleplaying game
+//////////////////////////////////////////////////////////////////////
+// various definitions needed by most files
+//////////////////////////////////////////////////////////////////////
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation,
+// Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+//////////////////////////////////////////////////////////////////////
 
-#ifndef FS_DEFINITIONS_H_877452FEC245450C9F96B8FD268D8963
-#define FS_DEFINITIONS_H_877452FEC245450C9F96B8FD268D8963
+#ifndef __OTSERV_DEFINITIONS_H__
+#define __OTSERV_DEFINITIONS_H__
 
-#define STATUS_SERVER_NAME "The Forgotten Server"
-#define STATUS_SERVER_VERSION "1.0"
-#define STATUS_SERVER_DEVELOPERS "Mark Samman"
-
-#define CLIENT_VERSION_MIN 1036
-#define CLIENT_VERSION_MAX 1037
-#define CLIENT_VERSION_STR "10.37"
-
-#ifndef __FUNCTION__
-#define __FUNCTION__ __func__
+#ifndef WIN32
+	#define __CONSOLE__
 #endif
 
-#ifndef _USE_MATH_DEFINES
-#define _USE_MATH_DEFINES
+#ifdef XML_GCC_FREE
+	#define xmlFreeOTSERV(s)	free(s)
+#else
+	#define xmlFreeOTSERV(s)	xmlFree(s)
 #endif
 
-#include <cmath>
+#ifdef __DEBUG_EXCEPTION_REPORT__
+	#define DEBUG_REPORT int *a = NULL; *a = 1;
+#else
+	#ifdef __EXCEPTION_TRACER__
+		#define DEBUG_REPORT ExceptionHandler::dumpStack();
+	#else
+		#define DEBUG_REPORT
+	#endif
+#endif
+
+#if defined __USE_MYSQL__ && defined __USE_SQLITE__
+enum sqlType_t
+{
+	SQL_TYPE_NONE = 0,
+	SQL_TYPE_SQLITE = 1,
+	SQL_TYPE_MYSQL = 2
+};
+#endif
+
+enum passwordType_t
+{
+	PASSWORD_TYPE_PLAIN = 0,
+	PASSWORD_TYPE_MD5,
+	PASSWORD_TYPE_SHA1
+};
 
 #ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
+#ifndef WIN32
+#define WIN32
+#endif
 #endif
 
-#define WIN32_LEAN_AND_MEAN
+#if defined __WINDOWS__ || defined WIN32
 
-#ifdef _MSC_VER
-#ifdef NDEBUG
-#define _SECURE_SCL 0
-#define HAS_ITERATOR_DEBUGGING 0
+#if defined _MSC_VER && defined NDEBUG
+	#define _SECURE_SCL 0
+	#define HAS_ITERATOR_DEBUGGING 0
 #endif
 
-#pragma warning(disable:4127) // conditional expression is constant
-#pragma warning(disable:4244) // 'argument' : conversion from 'type1' to 'type2', possible loss of data
-#pragma warning(disable:4250) // 'class1' : inherits 'class2::member' via dominance
-#pragma warning(disable:4267) // 'var' : conversion from 'size_t' to 'type', possible loss of data
-#pragma warning(disable:4351) // new behavior: elements of array will be default initialized
+#ifndef __FUNCTION__
+	#define	__FUNCTION__ __func__
 #endif
 
-#define strcasecmp _stricmp
-#define strncasecmp _strnicmp
+#define OTSYS_THREAD_RETURN void
+
+#ifdef _WIN32_WINNT
+#undef _WIN32_WINNT
+#endif
 
 //Windows 2000	0x0500
 //Windows XP	0x0501
 //Windows 2003	0x0502
 //Windows Vista	0x0600
-#ifdef _WIN32_WINNT
-#undef _WIN32_WINNT
-#endif
 #define _WIN32_WINNT 0x0501
+
+#ifdef __GNUC__
+	#include <stdint.h>
+	#include <string.h>
+	#if __GNUC__ >= 4
+		#include <tr1/unordered_map>
+		#include <tr1/unordered_set>
+		#define OTSERV_HASH_MAP std::tr1::unordered_map
+		#define OTSERV_HASH_SET std::tr1::unordered_set
+	#else
+		#include <ext/hash_map>
+		#include <ext/hash_set>
+		#define OTSERV_HASH_MAP __gnu_cxx::hash_map
+		#define OTSERV_HASH_SET __gnu_cxx::hash_set
+	#endif
+	#include <assert.h>
+	#include <time.h>
+
+	#define ATOI64 atoll
+#else
+	typedef unsigned long long uint64_t;
+
+	#define _WIN32_WINNT 0x0500
+
+	#ifndef NOMINMAX
+		#define NOMINMAX
+	#endif
+
+	#include <hash_map>
+	#include <hash_set>
+	#include <limits>
+	#include <assert.h>
+	#define OTSERV_HASH_MAP stdext::hash_map
+	#define OTSERV_HASH_SET stdext::hash_set
+
+	#include <cstring>
+	inline int strcasecmp(const char *s1, const char *s2)
+	{
+		return ::_stricmp(s1, s2);
+	}
+
+	inline int strncasecmp(const char *s1, const char *s2, size_t n)
+	{
+		return ::_strnicmp(s1, s2, n);
+	}
+
+	#if VISUALC_VERSION >= 10
+		#include <stdint.h>
+	#else
+		typedef signed long long int64_t;
+		// Int is 4 bytes on all x86 and x86-64 platforms
+		typedef unsigned int uint32_t;
+		typedef signed int int32_t;
+		typedef unsigned short uint16_t;
+		typedef signed short int16_t;
+		typedef unsigned char uint8_t;
+		typedef signed char int8_t;
+	#endif
+	#define ATOI64 _atoi64
+
+	#pragma warning(disable:4786) // msvc too long debug names in stl
+	#pragma warning(disable:4250) // 'class1' : inherits 'class2::member' via dominance
+	#pragma warning(disable:4244) //'argument' : conversion from 'type1' to 'type2', possible loss of data
+	#pragma warning(disable:4267) //'var' : conversion from 'size_t' to 'type', possible loss of data
+
 #endif
 
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
+//*nix systems
+#else
+	#define OTSYS_THREAD_RETURN void*
+
+	#include <stdint.h>
+	#include <string.h>
+	#if __GNUC__ >= 4
+		#include <tr1/unordered_map>
+		#include <tr1/unordered_set>
+		#define OTSERV_HASH_MAP std::tr1::unordered_map
+		#define OTSERV_HASH_SET std::tr1::unordered_set
+	#else
+		#include <ext/hash_map>
+		#include <ext/hash_set>
+		#define OTSERV_HASH_MAP __gnu_cxx::hash_map
+		#define OTSERV_HASH_SET __gnu_cxx::hash_set
+	#endif
+	#include <assert.h>
+	#include <time.h>
+
+	#define ATOI64 atoll
+
 #endif
 
 #endif

@@ -1,70 +1,114 @@
-/**
- * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2014  Mark Samman <mark.samman@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+//////////////////////////////////////////////////////////////////////
+// OpenTibia - an opensource roleplaying game
+//////////////////////////////////////////////////////////////////////
+// Base class for the LoginData loading/saving
+//////////////////////////////////////////////////////////////////////
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation,
+// Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+//////////////////////////////////////////////////////////////////////
 
-#ifndef FS_IOLOGINDATA_H_28B0440BEC594654AC0F4E1A5E42B2EF
-#define FS_IOLOGINDATA_H_28B0440BEC594654AC0F4E1A5E42B2EF
+#ifndef __IOLOGINDATA_H
+#define __IOLOGINDATA_H
 
+#include <string>
 #include "account.h"
 #include "player.h"
 #include "database.h"
 
-typedef std::list<std::pair<int32_t, Item*>> ItemBlockList;
+class PlayerGroup
+{
+	public:
+		PlayerGroup() {}
+		virtual ~PlayerGroup() {}
+		std::string m_name;
+		uint64_t m_flags;
+		uint32_t m_access;
+		uint32_t m_maxdepotitems;
+		uint32_t m_maxviplist;
+};
+
+typedef std::pair<int32_t, Item*> itemBlock;
+typedef std::list<itemBlock> ItemBlockList;
 
 class IOLoginData
 {
 	public:
-		static Account loadAccount(uint32_t accno);
-		static bool saveAccount(const Account& acc);
+		IOLoginData() {}
+		virtual ~IOLoginData() {}
 
-		static bool loginserverAuthentication(const std::string& name, const std::string& password, Account& account);
-		static uint32_t gameworldAuthentication(const std::string& accountName, const std::string& password, std::string& characterName);
+		static IOLoginData* getInstance()
+		{
+			static IOLoginData instance;
+			return &instance;
+		}
 
-		static AccountType_t getAccountType(uint32_t accountId);
-		static void setAccountType(uint32_t accountId, AccountType_t accountType);
-		static bool updateOnlineStatus(uint32_t guid, bool login);
-		static bool preloadPlayer(Player* player, const std::string& name);
+		Account loadAccount(uint32_t accno);
+		bool saveAccount(Account acc);
+		bool createAccount(uint32_t accountNumber, std::string newPassword);
+		bool getPassword(uint32_t accno, const std::string& name, std::string& password);
+		bool accountExists(uint32_t accno);
+		bool setRecoveryKey(uint32_t accountNumber, std::string recoveryKey);
+		bool validRecoveryKey(uint32_t accountNumber, const std::string recoveryKey);
+		bool setNewPassword(uint32_t accountId, std::string newPassword);
+		AccountType_t getAccountType(std::string name);
 
-		static bool loadPlayerById(Player* player, uint32_t id);
-		static bool loadPlayerByName(Player* player, const std::string& name);
-		static bool loadPlayer(Player* player, DBResult_ptr result);
-		static bool savePlayer(Player* player);
-		static bool getGuidByName(uint32_t& guid, std::string& name);
-		static bool getGuidByNameEx(uint32_t& guid, bool& specialVip, std::string& name);
-		static bool getNameByGuid(uint32_t guid, std::string& name);
-		static bool formatPlayerName(std::string& name);
-		static bool addStorageValue(uint32_t guid, uint32_t storageKey, uint32_t storageValue);
-		static void increaseBankBalance(uint32_t guid, uint64_t bankBalance);
-		static bool hasBiddedOnHouse(uint32_t guid);
+		bool updateOnlineStatus(uint32_t guid, bool login);
+		bool resetOnlineStatus();
 
-		static std::forward_list<VIPEntry> getVIPEntries(uint32_t accountId);
-		static void addVIPEntry(uint32_t accountId, uint32_t guid, const std::string& description, uint32_t icon, bool notify);
-		static void editVIPEntry(uint32_t accountId, uint32_t guid, const std::string& description, uint32_t icon, bool notify);
-		static void removeVIPEntry(uint32_t accountId, uint32_t guid);
-
-		static void addPremiumDays(uint32_t accountId, int32_t addDays);
-		static void removePremiumDays(uint32_t accountId, int32_t removeDays);
+		bool loadPlayer(Player* player, const std::string& name, bool preload = false);
+		bool savePlayer(Player* player, bool preSave);
+		bool getGuidByName(uint32_t& guid, std::string& name);
+		bool getGuidByNameEx(uint32_t &guid, bool& specialVip, std::string& name);
+		bool getNameByGuid(uint32_t guid, std::string& name);
+		bool playerExists(std::string& name);
+		bool playerExists(uint32_t guid);
+		int32_t getLevel(uint32_t guid);
+		bool isPremium(uint32_t guid);
+		bool leaveGuild(uint32_t guid);
+		bool changeName(uint32_t guid, std::string newName);
+		uint32_t getAccountNumberByName(std::string name);
+		bool createCharacter(uint32_t accountNumber, std::string characterName, int32_t vocationId, PlayerSex_t sex);
+		int16_t deleteCharacter(uint32_t accountNumber, const std::string characterName);
+		bool addStorageValue(uint32_t guid, uint32_t storageKey, uint32_t storageValue);
+		const PlayerGroup* getPlayerGroup(uint32_t groupid);
+		uint32_t getLastIPByName(std::string name);
+		bool hasGuild(uint32_t guid);
 
 	protected:
-		typedef std::map<int32_t , std::pair<Item*, int32_t> > ItemMap;
+		bool storeNameByGuid(Database &mysql, uint32_t guid);
 
-		static void loadItems(ItemMap& itemMap, DBResult_ptr result);
-		static bool saveItems(const Player* player, const ItemBlockList& itemList, DBInsert& query_insert, PropWriteStream& stream);
+		const PlayerGroup* getPlayerGroupByAccount(uint32_t accno);
+		struct StringCompareCase
+		{
+			bool operator()(const std::string& l, const std::string& r) const
+			{
+				return strcasecmp(l.c_str(), r.c_str()) < 0;
+			}
+		};
+
+		typedef std::map<int32_t ,std::pair<Item*, int32_t> > ItemMap;
+
+		void loadItems(ItemMap& itemMap, DBResult& result);
+		bool saveItems(const Player* player, const ItemBlockList& itemList, DBSplitInsert& query_insert);
+
+		typedef std::map<uint32_t, std::string> NameCacheMap;
+		typedef std::map<std::string, uint32_t, StringCompareCase> GuidCacheMap;
+		typedef std::map<uint32_t, PlayerGroup*> PlayerGroupMap;
+
+		PlayerGroupMap playerGroupMap;
+		NameCacheMap nameCacheMap;
+		GuidCacheMap guidCacheMap;
 };
 
 #endif

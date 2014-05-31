@@ -1,34 +1,34 @@
-/**
- * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2014  Mark Samman <mark.samman@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+//////////////////////////////////////////////////////////////////////
+// OpenTibia - an opensource roleplaying game
+//////////////////////////////////////////////////////////////////////
+// OTBM map loader
+//////////////////////////////////////////////////////////////////////
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation,
+// Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+//////////////////////////////////////////////////////////////////////
 
-#ifndef FS_IOMAP_H_8085D4B1037A44288494A52FDBB775E4
-#define FS_IOMAP_H_8085D4B1037A44288494A52FDBB775E4
+#ifndef __OTSERV_IOMAP_H__
+#define __OTSERV_IOMAP_H__
 
 #include "item.h"
 #include "map.h"
 #include "house.h"
 #include "spawn.h"
-#include "configmanager.h"
+#include "status.h"
 
-extern ConfigManager g_config;
-
-enum OTBM_AttrTypes_t {
+enum OTBM_AttrTypes_t
+{
 	OTBM_ATTR_DESCRIPTION = 1,
 	OTBM_ATTR_EXT_FILE = 2,
 	OTBM_ATTR_TILE_FLAGS = 3,
@@ -53,7 +53,8 @@ enum OTBM_AttrTypes_t {
 	OTBM_ATTR_CHARGES = 22
 };
 
-enum OTBM_NodeTypes_t {
+enum OTBM_NodeTypes_t
+{
 	OTBM_ROOTV1 = 1,
 	OTBM_MAP_DATA = 2,
 	OTBM_ITEM_DEF = 3,
@@ -67,14 +68,13 @@ enum OTBM_NodeTypes_t {
 	OTBM_MONSTER = 11,
 	OTBM_TOWNS = 12,
 	OTBM_TOWN = 13,
-	OTBM_HOUSETILE = 14,
-	OTBM_WAYPOINTS = 15,
-	OTBM_WAYPOINT = 16
+	OTBM_HOUSETILE = 14
 };
 
 #pragma pack(1)
 
-struct OTBM_root_header {
+struct OTBM_root_header
+{
 	uint32_t version;
 	uint16_t width;
 	uint16_t height;
@@ -82,18 +82,35 @@ struct OTBM_root_header {
 	uint32_t minorVersionItems;
 };
 
-struct OTBM_Destination_coords {
+struct OTBM_TeleportDest
+{
 	uint16_t _x;
 	uint16_t _y;
 	uint8_t _z;
 };
 
-struct OTBM_Tile_coords {
+struct OTBM_Tile_area_coords
+{
+	uint16_t _x;
+	uint16_t _y;
+	uint8_t _z;
+};
+
+struct OTBM_Tile_coords
+{
 	uint8_t _x;
 	uint8_t _y;
 };
 
-struct OTBM_HouseTile_coords {
+struct OTBM_TownTemple_coords
+{
+	uint16_t _x;
+	uint16_t _y;
+	uint8_t _z;
+};
+
+struct OTBM_HouseTile_coords
+{
 	uint8_t _x;
 	uint8_t _y;
 	uint32_t _houseid;
@@ -103,22 +120,26 @@ struct OTBM_HouseTile_coords {
 
 class IOMap
 {
-		static Tile* createTile(Item*& ground, Item* item, int px, int py, int pz);
+	static Tile* createTile(Item*& ground, Item* item, int px, int py, int pz);
 	public:
+		IOMap() {}
+		~IOMap() {}
+
 		bool loadMap(Map* map, const std::string& identifier);
 
 		/* Load the spawns
 		 * \param map pointer to the Map class
 		 * \returns Returns true if the spawns were loaded successfully
 		 */
-		static bool loadSpawns(Map* map) {
-			if (map->spawnfile.empty()) {
+		bool loadSpawns(Map* map)
+		{
+			if(map->spawnfile.empty())
+			{
 				//OTBM file doesn't tell us about the spawnfile,
 				//lets guess it is mapname-spawn.xml.
-				map->spawnfile = g_config.getString(ConfigManager::MAP_NAME);
+				map->spawnfile = Status::getInstance()->getMapName();
 				map->spawnfile += "-spawn.xml";
 			}
-
 			return Spawns::getInstance()->loadFromXml(map->spawnfile);
 		}
 
@@ -126,22 +147,25 @@ class IOMap
 		 * \param map pointer to the Map class
 		 * \returns Returns true if the houses were loaded successfully
 		 */
-		static bool loadHouses(Map* map) {
-			if (map->housefile.empty()) {
+		bool loadHouses(Map* map)
+		{
+			if(map->housefile.empty())
+			{
 				//OTBM file doesn't tell us about the housefile,
 				//lets guess it is mapname-house.xml.
-				map->housefile = g_config.getString(ConfigManager::MAP_NAME);
+				map->housefile = Status::getInstance()->getMapName();
 				map->housefile += "-house.xml";
 			}
-
 			return Houses::getInstance().loadHousesXML(map->housefile);
 		}
 
-		const std::string& getLastErrorString() const {
+		const std::string& getLastErrorString() const
+		{
 			return errorString;
 		}
 
-		void setLastErrorString(const std::string& _errorString) {
+		void setLastErrorString(const std::string& _errorString)
+		{
 			errorString = _errorString;
 		}
 

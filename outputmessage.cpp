@@ -1,27 +1,33 @@
-/**
- * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2014  Mark Samman <mark.samman@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
-
+//////////////////////////////////////////////////////////////////////
+// OpenTibia - an opensource roleplaying game
+//////////////////////////////////////////////////////////////////////
+//
+//////////////////////////////////////////////////////////////////////
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation,
+// Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+//////////////////////////////////////////////////////////////////////
 #include "otpch.h"
 
 #include "outputmessage.h"
 #include "protocol.h"
 #include "scheduler.h"
+
+extern Dispatcher g_dispatcher;
+
+#ifdef __ENABLE_SERVER_DIAGNOSTIC__
+uint32_t OutputMessagePool::OutputMessagePoolCount = OUTPUT_POOL_SIZE;
+#endif
 
 OutputMessage::OutputMessage()
 {
@@ -32,26 +38,31 @@ OutputMessage::OutputMessage()
 
 OutputMessagePool::OutputMessagePool()
 {
-	for (uint32_t i = 0; i < OUTPUT_POOL_SIZE; ++i) {
+	for(uint32_t i = 0; i < OUTPUT_POOL_SIZE; ++i)
+	{
 		OutputMessage* msg = new OutputMessage();
 		m_outputMessages.push_back(msg);
+#ifdef __TRACK_NETWORK__
+		m_allOutputMessages.push_back(msg);
+#endif
 	}
-
 	m_frameTime = OTSYS_TIME();
 }
 
 void OutputMessagePool::startExecutionFrame()
 {
-	//std::lock_guard<std::recursive_mutex> lockClass(m_outputPoolLock);
+	//boost::recursive_mutex::scoped_lock lockClass(m_outputPoolLock);
 	m_frameTime = OTSYS_TIME();
 	m_isOpen = true;
 }
 
 OutputMessagePool::~OutputMessagePool()
 {
-	for (OutputMessage* msg : m_outputMessages) {
-		delete msg;
-	}
+	InternalOutputMessageList::iterator it;
+	for(it = m_outputMessages.begin(); it != m_outputMessages.end(); ++it)
+		delete *it;
+
+	m_outputMessages.clear();
 }
 
 void OutputMessagePool::send(OutputMessage_ptr msg)
@@ -60,76 +71,128 @@ void OutputMessagePool::send(OutputMessage_ptr msg)
 	OutputMessage::OutputMessageState state = msg->getState();
 	m_outputPoolLock.unlock();
 
-	if (state == OutputMessage::STATE_ALLOCATED_NO_AUTOSEND) {
-		Connection_ptr connection = msg->getConnection();
-		if (connection && !connection->send(msg)) {
-			// Send only fails when connection is closing (or in error state)
-			// This call will free the message
-			msg->getProtocol()->onSendMessage(msg);
+	if(state == OutputMessage::STATE_ALLOCATED_NO_AUTOSEND)
+	{
+		#ifdef __DEBUG_NET_DETAIL__
+		std::cout << "Sending message - SINGLE" << std::endl;
+		#endif
+
+		if(msg->getConnection())
+		{
+			if(!msg->getConnection()->send(msg))
+			{
+				// Send only fails when connection is closing (or in error state)
+				// This call will free the message
+				msg->getProtocol()->onSendMessage(msg);
+			}
 		}
+		else
+		{
+			#ifdef __DEBUG_NET__
+			std::cout << "Error: [OutputMessagePool::send] NULL connection." << std::endl;
+			#endif
+		}
+	}
+	else
+	{
+		#ifdef __DEBUG_NET__
+		std::cout << "Warning: [OutputMessagePool::send] State != STATE_ALLOCATED_NO_AUTOSEND" << std::endl;
+		#endif
 	}
 }
 
 void OutputMessagePool::sendAll()
 {
-	std::lock_guard<std::recursive_mutex> lockClass(m_outputPoolLock);
+	boost::recursive_mutex::scoped_lock lockClass(m_outputPoolLock);
+	OutputMessageMessageList::iterator it;
 
-	const int64_t dropTime = m_frameTime - 10000;
-	const int64_t frameTime = m_frameTime - 10;
-
-	for (OutputMessage_ptr omsg : m_toAddQueue) {
-		const int64_t msgFrame = omsg->getFrame();
-		if (msgFrame >= dropTime) {
-			omsg->setState(OutputMessage::STATE_ALLOCATED);
-
-			if (frameTime > msgFrame) {
-				m_autoSendOutputMessages.push_front(omsg);
-			} else {
-				m_autoSendOutputMessages.push_back(omsg);
-			}
-		} else {
-			//drop messages that are older than 10 seconds
-			omsg->getProtocol()->onSendMessage(omsg);
+	for(it = m_toAddQueue.begin(); it != m_toAddQueue.end();)
+	{
+		//drop messages that are older than 10 seconds
+		if(OTSYS_TIME() - (*it)->getFrame() > 10 * 1000)
+		{
+			(*it)->getProtocol()->onSendMessage(*it);
+			it = m_toAddQueue.erase(it);
+			continue;
 		}
+
+		(*it)->setState(OutputMessage::STATE_ALLOCATED);
+		m_autoSendOutputMessages.push_back(*it);
+		++it;
 	}
+
 	m_toAddQueue.clear();
 
-	for (auto it = m_autoSendOutputMessages.begin(), end = m_autoSendOutputMessages.end(); it != end; it = m_autoSendOutputMessages.erase(it)) {
+	for(it = m_autoSendOutputMessages.begin(); it != m_autoSendOutputMessages.end();)
+	{
 		OutputMessage_ptr omsg = *it;
-		if (frameTime <= omsg->getFrame()) {
-			break;
+		#ifdef __NO_PLAYER_SENDBUFFER__
+		//use this define only for debugging
+		bool v = 1;
+		#else
+		//It will send only messages bigger then 1 kb or with a lifetime greater than 10 ms
+		bool v = omsg->getMessageLength() > 1024 || (m_frameTime - omsg->getFrame() > 10);
+		#endif
+		if(v)
+		{
+			#ifdef __DEBUG_NET_DETAIL__
+			std::cout << "Sending message - ALL" << std::endl;
+			#endif
+			if(omsg->getConnection())
+			{
+				if(!omsg->getConnection()->send(omsg))
+				{
+					// Send only fails when connection is closing (or in error state)
+					// This call will free the message
+					omsg->getProtocol()->onSendMessage(omsg);
+				}
+			}
+			else
+			{
+				#ifdef __DEBUG_NET__
+				std::cout << "Error: [OutputMessagePool::send] NULL connection." << std::endl;
+				#endif
+			}
+			it = m_autoSendOutputMessages.erase(it);
 		}
-
-		Connection_ptr connection = omsg->getConnection();
-		if (connection && !connection->send(omsg)) {
-			// Send only fails when connection is closing (or in error state)
-			// This call will free the message
-			omsg->getProtocol()->onSendMessage(omsg);
-		}
+		else
+			++it;
 	}
 }
 
 void OutputMessagePool::releaseMessage(OutputMessage* msg)
 {
 	g_dispatcher.addTask(
-	    createTask(std::bind(&OutputMessagePool::internalReleaseMessage, this, msg)));
+		createTask(boost::bind(&OutputMessagePool::internalReleaseMessage, this, msg)));
 }
 
 void OutputMessagePool::internalReleaseMessage(OutputMessage* msg)
 {
-	if (msg->getProtocol()) {
+	if(msg->getProtocol())
+	{
 		msg->getProtocol()->unRef();
-	} else {
+#ifdef __DEBUG_NET_DETAIL__
+		std::cout << "Removing reference to protocol " << msg->getProtocol() << std::endl;
+#endif
+	}
+	else
 		std::cout << "No protocol found." << std::endl;
-	}
 
-	if (msg->getConnection()) {
+	if(msg->getConnection())
+	{
 		msg->getConnection()->unRef();
-	} else {
-		std::cout << "No connection found." << std::endl;
+#ifdef __DEBUG_NET_DETAIL__
+		std::cout << "Removing reference to connection " << msg->getConnection() << std::endl;
+#endif
 	}
+	else
+		std::cout << "No connection found." << std::endl;
 
 	msg->freeMessage();
+
+#ifdef __TRACK_NETWORK__
+	msg->clearTrack();
+#endif
 
 	m_outputPoolLock.lock();
 	m_outputMessages.push_back(msg);
@@ -138,24 +201,35 @@ void OutputMessagePool::internalReleaseMessage(OutputMessage* msg)
 
 OutputMessage_ptr OutputMessagePool::getOutputMessage(Protocol* protocol, bool autosend /*= true*/)
 {
-	if (!m_isOpen) {
+	#ifdef __DEBUG_NET_DETAIL__
+	std::cout << "request output message - auto = " << autosend << std::endl;
+	#endif
+
+	if(!m_isOpen)
 		return OutputMessage_ptr();
-	}
 
-	std::lock_guard<std::recursive_mutex> lockClass(m_outputPoolLock);
+	boost::recursive_mutex::scoped_lock lockClass(m_outputPoolLock);
 
-	if (!protocol->getConnection()) {
+	if(protocol->getConnection() == NULL)
 		return OutputMessage_ptr();
-	}
 
-	if (m_outputMessages.empty()) {
+	if(m_outputMessages.empty())
+	{
 		OutputMessage* msg = new OutputMessage();
 		m_outputMessages.push_back(msg);
+
+#ifdef __ENABLE_SERVER_DIAGNOSTIC__
+		OutputMessagePoolCount++;
+#endif
+
+#ifdef __TRACK_NETWORK__
+		m_allOutputMessages.push_back(msg);
+#endif
 	}
 
 	OutputMessage_ptr outputmessage;
 	outputmessage.reset(m_outputMessages.back(),
-	                    std::bind(&OutputMessagePool::releaseMessage, this, std::placeholders::_1));
+		boost::bind(&OutputMessagePool::releaseMessage, this, _1));
 
 	m_outputMessages.pop_back();
 
@@ -165,24 +239,29 @@ OutputMessage_ptr OutputMessagePool::getOutputMessage(Protocol* protocol, bool a
 
 void OutputMessagePool::configureOutputMessage(OutputMessage_ptr msg, Protocol* protocol, bool autosend)
 {
+	TRACK_MESSAGE(msg);
 	msg->Reset();
-
-	if (autosend) {
+	if(autosend)
+	{
 		msg->setState(OutputMessage::STATE_ALLOCATED);
 		m_autoSendOutputMessages.push_back(msg);
-	} else {
-		msg->setState(OutputMessage::STATE_ALLOCATED_NO_AUTOSEND);
 	}
+	else
+		msg->setState(OutputMessage::STATE_ALLOCATED_NO_AUTOSEND);
 
 	Connection_ptr connection = protocol->getConnection();
-	assert(connection);
+	assert(connection != NULL);
 
 	msg->setProtocol(protocol);
 	protocol->addRef();
-
+#ifdef __DEBUG_NET_DETAIL__
+	std::cout << "Adding reference to protocol - " << protocol << std::endl;
+#endif
 	msg->setConnection(connection);
 	connection->addRef();
-
+#ifdef __DEBUG_NET_DETAIL__
+	std::cout << "Adding reference to connection - " << connection << std::endl;
+#endif
 	msg->setFrame(m_frameTime);
 }
 

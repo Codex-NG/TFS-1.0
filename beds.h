@@ -1,26 +1,32 @@
-/**
- * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2014  Mark Samman <mark.samman@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+//////////////////////////////////////////////////////////////////////
+// OpenTibia - an opensource roleplaying game
+//////////////////////////////////////////////////////////////////////
+// Beds
+//////////////////////////////////////////////////////////////////////
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation,
+// Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+//////////////////////////////////////////////////////////////////////
 
-#ifndef FS_BEDS_H_84DE19758D424C6C9789189231946BFF
-#define FS_BEDS_H_84DE19758D424C6C9789189231946BFF
+#ifndef __OTS_BEDS_H__
+#define __OTS_BEDS_H__
 
 #include "item.h"
+#include "position.h"
+#include "definitions.h"
+
+#include <ctime>
+#include <list>
 
 class House;
 class Player;
@@ -29,47 +35,28 @@ class BedItem : public Item
 {
 	public:
 		BedItem(uint16_t id);
-		virtual ~BedItem() {}
+		virtual ~BedItem() {};
 
-		virtual BedItem* getBed() {
-			return this;
-		}
-		virtual const BedItem* getBed() const {
-			return this;
-		}
+		virtual BedItem* getBed() {return this;}
+		virtual const BedItem* getBed() const {return this;}
 
 		virtual Attr_ReadValue readAttr(AttrTypes_t attr, PropStream& propStream);
 		virtual bool serializeAttr(PropWriteStream& propWriteStream) const;
 
-		virtual bool canRemove() const {
-			return (house == nullptr);
-		}
+		virtual bool canRemove() const {return (house == NULL);}
 
-		uint32_t getSleeper() const {
-			return sleeperGUID;
-		}
-		void setSleeper(uint32_t guid) {
-			sleeperGUID = guid;
-		}
+		uint32_t getSleeper() const {return sleeperGUID;}
+		void setSleeper(uint32_t guid) {sleeperGUID = guid;}
 
-		uint64_t getSleepStart() const {
-			return sleepStart;
-		}
-		void setSleepStart(uint64_t now) {
-			sleepStart = now;
-		}
+		uint64_t getSleepStart() const {return sleepStart;}
+		void setSleepStart(uint64_t now) {sleepStart = now;}
 
-		House* getHouse() const {
-			return house;
-		}
-		void setHouse(House* h) {
-			house = h;
-		}
+		House* getHouse() const {return house;}
+		void setHouse(House* h) {house = h;}
 
 		bool canUse(Player* player);
 
-		bool trySleep(Player* player);
-		bool sleep(Player* player);
+		void sleep(Player* player);
 		void wakeUp(Player* player);
 
 		BedItem* getNextBedItem();
@@ -80,15 +67,18 @@ class BedItem : public Item
 		void internalSetSleeper(const Player* player);
 		void internalRemoveSleeper();
 
-		House* house;
-		uint64_t sleepStart;
 		uint32_t sleeperGUID;
+		uint64_t sleepStart;
+		House* house;
 };
 
 class Beds
 {
 	public:
-		static Beds& getInstance() {
+		virtual ~Beds() {}
+
+		static Beds& getInstance()
+		{
 			static Beds instance;
 			return instance;
 		}
@@ -97,7 +87,7 @@ class Beds
 		void setBedSleeper(BedItem* bed, uint32_t guid);
 
 	protected:
-		Beds() {}
+		Beds() {BedSleepersMap.clear();}
 
 		std::map<uint32_t, BedItem*> BedSleepersMap;
 };

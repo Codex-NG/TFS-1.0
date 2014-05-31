@@ -1,35 +1,43 @@
-/**
- * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2014  Mark Samman <mark.samman@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+//////////////////////////////////////////////////////////////////////
+//
+//////////////////////////////////////////////////////////////////////
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation,
+// Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+//////////////////////////////////////////////////////////////////////
+#ifndef __OTSERV_RAIDS_H__
+#define __OTSERV_RAIDS_H__
 
-#ifndef FS_RAIDS_H_3583C7C054584881856D55765DEDAFA9
-#define FS_RAIDS_H_3583C7C054584881856D55765DEDAFA9
+#include <string>
+#include <vector>
+#include <list>
 
+#include "definitions.h"
 #include "const.h"
 #include "position.h"
 #include "baseevents.h"
 
-enum RaidState_t {
+#include <libxml/xmlmemory.h>
+#include <libxml/parser.h>
+
+enum RaidState_t
+{
 	RAIDSTATE_IDLE = 0,
 	RAIDSTATE_EXECUTING
 };
 
-struct MonsterSpawn {
+struct MonsterSpawn
+{
 	std::string name;
 	uint32_t minAmount;
 	uint32_t maxAmount;
@@ -43,10 +51,15 @@ struct MonsterSpawn {
 class Raid;
 class RaidEvent;
 
+typedef std::list<Raid*> RaidList;
+typedef std::vector<RaidEvent*> RaidEventVector;
+typedef std::list<MonsterSpawn*> MonsterSpawnList;
+
 class Raids
 {
 	public:
-		static Raids* getInstance() {
+		static Raids* getInstance()
+		{
 			static Raids instance;
 			return &instance;
 		}
@@ -59,52 +72,32 @@ class Raids
 		void clear();
 		bool reload();
 
-		bool isLoaded() const {
-			return loaded;
-		}
-		bool isStarted() const {
-			return started;
-		}
+		bool isLoaded() {return loaded;}
+		bool isStarted() {return started;}
 
-		Raid* getRunning() {
-			return running;
-		}
-		void setRunning(Raid* newRunning) {
-			running = newRunning;
-		}
+		Raid* getRunning() {return running;}
+		void setRunning(Raid* newRunning) {running = newRunning;}
 
 		Raid* getRaidByName(const std::string& name);
 
-		uint64_t getLastRaidEnd() const {
-			return lastRaidEnd;
-		}
-		void setLastRaidEnd(uint64_t newLastRaidEnd) {
-			lastRaidEnd = newLastRaidEnd;
-		}
+		uint64_t getLastRaidEnd() {return lastRaidEnd;}
+		void setLastRaidEnd(uint64_t newLastRaidEnd) {lastRaidEnd = newLastRaidEnd;}
 
 		void checkRaids();
 
-		LuaScriptInterface& getScriptInterface() {
-			return m_scriptInterface;
-		}
-
 	private:
 		Raids();
-
-		LuaScriptInterface m_scriptInterface;
-
-		std::list<Raid*> raidList;
+		RaidList raidList;
+		bool loaded, started;
 		Raid* running;
 		uint64_t lastRaidEnd;
 		uint32_t checkRaidsEvent;
-		bool loaded, started;
 };
 
 class Raid
 {
 	public:
-		Raid(const std::string& name, uint32_t interval, uint32_t marginTime, bool repeat)
-			: name(name), interval(interval), nextEvent(0), margin(marginTime), state(RAIDSTATE_IDLE), nextEventEvent(0), loaded(false), repeat(repeat) {}
+		Raid(const std::string& _name, uint32_t _interval, uint32_t _marginTime);
 		~Raid();
 
 		bool loadFromXml(const std::string& _filename);
@@ -115,32 +108,19 @@ class Raid
 		void resetRaid();
 
 		RaidEvent* getNextRaidEvent();
-		void setState(RaidState_t newState) {
-			state = newState;
-		}
-		std::string getName() const {
-			return name;
-		}
+		void setState(RaidState_t newState) {state = newState;}
+		std::string getName() const {return name;}
 
 		void addEvent(RaidEvent* event);
 
-		bool isLoaded() const {
-			return loaded;
-		}
-		uint64_t getMargin() const {
-			return margin;
-		}
-		uint32_t getInterval() const {
-			return interval;
-		}
-		bool canBeRepeated() const {
-			return repeat;
-		}
+		bool isLoaded() {return loaded;}
+		uint64_t getMargin() {return margin;}
+		uint32_t getInterval() {return interval;}
 
 		void stopEvents();
 
 	private:
-		std::vector<RaidEvent*> raidEvents;
+		RaidEventVector raidEvents;
 		std::string name;
 		uint32_t interval;
 		uint32_t nextEvent;
@@ -148,7 +128,6 @@ class Raid
 		RaidState_t state;
 		uint32_t nextEventEvent;
 		bool loaded;
-		bool repeat;
 };
 
 class RaidEvent
@@ -157,19 +136,14 @@ class RaidEvent
 		RaidEvent() {}
 		virtual ~RaidEvent() {}
 
-		virtual bool configureRaidEvent(const pugi::xml_node& eventNode);
+		virtual bool configureRaidEvent(xmlNodePtr eventNode);
 
-		virtual bool executeEvent() {
-			return false;
-		}
-		uint32_t getDelay() const {
-			return m_delay;
-		}
-		void setDelay(uint32_t newDelay) {
-			m_delay = newDelay;
-		}
+		virtual bool executeEvent() {return false;}
+		uint32_t getDelay() const {return m_delay;}
+		void setDelay(uint32_t newDelay) {m_delay = newDelay;}
 
-		static bool compareEvents(const RaidEvent* lhs, const RaidEvent* rhs) {
+		static bool compareEvents(const RaidEvent* lhs, const RaidEvent* rhs)
+		{
 			return lhs->getDelay() < rhs->getDelay();
 		}
 
@@ -180,12 +154,10 @@ class RaidEvent
 class AnnounceEvent : public RaidEvent
 {
 	public:
-		AnnounceEvent() {
-			m_messageType = MESSAGE_EVENT_ADVANCE;
-		}
+		AnnounceEvent() {}
 		virtual ~AnnounceEvent() {}
 
-		virtual bool configureRaidEvent(const pugi::xml_node& eventNode);
+		virtual bool configureRaidEvent(xmlNodePtr eventNode);
 
 		virtual bool executeEvent();
 
@@ -200,7 +172,7 @@ class SingleSpawnEvent : public RaidEvent
 		SingleSpawnEvent() {}
 		virtual ~SingleSpawnEvent() {}
 
-		virtual bool configureRaidEvent(const pugi::xml_node& eventNode);
+		virtual bool configureRaidEvent(xmlNodePtr eventNode);
 
 		virtual bool executeEvent();
 
@@ -215,7 +187,7 @@ class AreaSpawnEvent : public RaidEvent
 		AreaSpawnEvent() {}
 		virtual ~AreaSpawnEvent();
 
-		virtual bool configureRaidEvent(const pugi::xml_node& eventNode);
+		virtual bool configureRaidEvent(xmlNodePtr eventNode);
 
 		void addMonster(MonsterSpawn* monsterSpawn);
 		void addMonster(const std::string& monsterName, uint32_t minAmount, uint32_t maxAmount);
@@ -223,26 +195,25 @@ class AreaSpawnEvent : public RaidEvent
 		virtual bool executeEvent();
 
 	private:
-		std::list<MonsterSpawn*> m_spawnList;
+		MonsterSpawnList m_spawnList;
 		Position m_fromPos, m_toPos;
 };
 
 class ScriptEvent : public RaidEvent, public Event
 {
 	public:
-		ScriptEvent(LuaScriptInterface* _interface);
-		ScriptEvent(const ScriptEvent* copy);
+		ScriptEvent();
 		~ScriptEvent() {}
 
-		virtual bool configureRaidEvent(const pugi::xml_node& eventNode);
-		virtual bool configureEvent(const pugi::xml_node&) {
-			return false;
-		}
+		virtual bool configureRaidEvent(xmlNodePtr eventNode);
+		virtual bool configureEvent(xmlNodePtr p) {return false;}
 
 		bool executeEvent();
 
 	protected:
 		virtual std::string getScriptEventName();
+
+		static LuaScriptInterface m_scriptInterface;
 };
 
 #endif

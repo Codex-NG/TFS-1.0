@@ -1,51 +1,38 @@
-/**
- * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2014  Mark Samman <mark.samman@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
-
-#ifdef FS_OTPCH_H_F00C737DA6CA4C8D90F57430C614367F
+#ifdef __OTSERV_OTCP_H__
 #error "Precompiled header should only be included once."
 #endif
 
-#define FS_OTPCH_H_F00C737DA6CA4C8D90F57430C614367F
+#define __OTSERV_OTCP_H__
+
+//#undef __USE_OTPCH__
 
 // Definitions should be global.
 #include "definitions.h"
 
+#ifdef __USE_OTPCH__
+
+#if defined __WINDOWS__ || defined WIN32
+#include <winerror.h>
+#endif
+
+//libxml
+#include <libxml/xmlmemory.h>
+#include <libxml/parser.h>
+#include <libxml/threads.h>
 //boost
+#include <boost/config.hpp>
+#include <boost/shared_ptr.hpp>
+#include <boost/bind.hpp>
+#include <boost/function.hpp>
+#include <boost/tokenizer.hpp>
+#include <boost/regex.hpp>
 #include <boost/asio.hpp>
-
 //std
-#include <algorithm>
-#include <chrono>
-#include <cstdint>
-#include <forward_list>
-#include <functional>
-#include <iomanip>
-#include <iostream>
 #include <list>
-#include <map>
-#include <memory>
-#include <mutex>
-#include <sstream>
-#include <string>
-#include <thread>
-#include <unordered_map>
 #include <vector>
+#include <map>
+#include <string>
+//otserv
+#include "thing.h"
 
-//pugixml
-#include "ext/pugixml.hpp"
+#endif

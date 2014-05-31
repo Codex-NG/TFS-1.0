@@ -1,81 +1,66 @@
-/**
- * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2014  Mark Samman <mark.samman@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+//////////////////////////////////////////////////////////////////////
+// OpenTibia - an opensource roleplaying game
+//////////////////////////////////////////////////////////////////////
+// Party system
+//////////////////////////////////////////////////////////////////////
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation,
+// Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+//////////////////////////////////////////////////////////////////////
 
-#ifndef FS_PARTY_H_41D4D7CF417C4CC99FAE94D552255044
-#define FS_PARTY_H_41D4D7CF417C4CC99FAE94D552255044
+#ifndef __PARTY_H__
+#define __PARTY_H__
 
 #include "player.h"
 #include "monsters.h"
 
+typedef std::vector<Player*> PlayerVector;
+
 class Player;
 class Party;
-
-typedef std::vector<Player*> PlayerVector;
 
 class Party
 {
 	public:
-		Party(Player* leader);
-		~Party();
+		Party(Player* _leader);
+		virtual ~Party();
 
-		Player* getLeader() const {
-			return leader;
-		}
-		PlayerVector& getMembers() {
-			return memberList;
-		}
-		const PlayerVector& getInvitees() const {
-			return inviteList;
-		}
-		size_t getMemberCount() const {
-			return memberList.size();
-		}
-		size_t getInvitationCount() const {
-			return inviteList.size();
-		}
+		Player* getLeader() const {return leader;}
+		void setLeader(Player* _leader) {leader = _leader;}
+		PlayerVector getMembers() {return memberList;}
 
 		void disband();
-		bool invitePlayer(Player& player);
-		bool joinParty(Player& player);
-		void revokeInvitation(Player& player);
+		bool invitePlayer(Player* player);
+		bool joinParty(Player* player);
+		void revokeInvitation(Player* player);
 		bool passPartyLeadership(Player* player);
 		bool leaveParty(Player* player);
 
-		bool removeInvite(Player& player, bool removeFromPlayer = true);
+		bool removeInvite(Player* player);
 
+		bool isPlayerMember(const Player* player) const;
 		bool isPlayerInvited(const Player* player) const;
 		void updateAllPartyIcons();
+		void updatePartyIcons(Player* player);
 		void broadcastPartyMessage(MessageClasses msgClass, const std::string& msg, bool sendToInvitations = false);
 		void broadcastPartyLoot(const std::string& loot);
-		bool empty() const {
-			return memberList.empty() && inviteList.empty();
-		}
-		bool canOpenCorpse(uint32_t ownerId) const;
+		bool disbandParty() {return (memberList.empty() && inviteList.empty());}
+		bool canOpenCorpse(uint32_t ownerId);
 
 		void shareExperience(uint64_t experience);
 		bool setSharedExperience(Player* player, bool _sharedExpActive);
-		bool isSharedExperienceActive() const {
-			return sharedExpActive;
-		}
-		bool isSharedExperienceEnabled() const {
-			return sharedExpEnabled;
-		}
+		bool isSharedExperienceActive() const {return sharedExpActive;}
+		bool isSharedExperienceEnabled() const {return sharedExpEnabled;}
 		bool canUseSharedExperience(const Player* player) const;
 		void updateSharedExperience();
 
@@ -84,9 +69,15 @@ class Party
 		void clearPlayerPoints(Player* player);
 
 	protected:
-		bool canEnableSharedExperience();
+		bool sharedExpActive;
+		bool sharedExpEnabled;
 
-		struct CountBlock_t {
+		Player* leader;
+		PlayerVector memberList;
+		PlayerVector inviteList;
+
+		struct CountBlock_t
+		{
 			int32_t totalHeal;
 			int32_t totalDamage;
 			int64_t ticks;
@@ -94,13 +85,7 @@ class Party
 		typedef std::map<uint32_t, CountBlock_t> CountMap;
 		CountMap pointMap;
 
-		PlayerVector memberList;
-		PlayerVector inviteList;
-
-		Player* leader;
-
-		bool sharedExpActive;
-		bool sharedExpEnabled;
+		bool canEnableSharedExperience();
 };
 
 #endif

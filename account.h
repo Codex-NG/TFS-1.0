@@ -1,39 +1,42 @@
-/**
- * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2014  Mark Samman <mark.samman@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+//////////////////////////////////////////////////////////////////////
+// OpenTibia - an opensource roleplaying game
+//////////////////////////////////////////////////////////////////////
+// Account class
+//////////////////////////////////////////////////////////////////////
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation,
+// Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+//////////////////////////////////////////////////////////////////////
 
-#ifndef FS_ACCOUNT_H_34817537BA2B4CB7B71AA562AFBB118F
-#define FS_ACCOUNT_H_34817537BA2B4CB7B71AA562AFBB118F
+#ifndef __OTSERV_ACCOUNT_H__
+#define __OTSERV_ACCOUNT_H__
 
+#include <list>
+#include <string>
+#include "definitions.h"
 #include "enums.h"
 
-struct Account {
-	std::list<std::string> charList;
-	std::string name;
-	time_t lastDay;
-	AccountType_t accountType;
-	uint32_t id;
-	uint16_t premiumDays;
+class Account
+{
+	public:
+		Account();
+		~Account();
 
-	Account() {
-		id = 0;
-		accountType = ACCOUNT_TYPE_NORMAL;
-	}
+		uint32_t accnumber, lastDay, premiumDays;
+		AccountType_t accountType;
+		int32_t warnings;
+		std::string recoveryKey, password;
+		std::list<std::string> charList;
 };
 
 #endif

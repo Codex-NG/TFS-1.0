@@ -1,29 +1,36 @@
-/**
- * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2014  Mark Samman <mark.samman@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+//////////////////////////////////////////////////////////////////////
+// OpenTibia - an opensource roleplaying game
+//////////////////////////////////////////////////////////////////////
+// the map of OpenTibia
+//////////////////////////////////////////////////////////////////////
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation,
+// Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+//////////////////////////////////////////////////////////////////////
 
-#ifndef FS_MAP_H_E3953D57C058461F856F5221D359DAFA
-#define FS_MAP_H_E3953D57C058461F856F5221D359DAFA
+#ifndef __OTSERV_MAP_H__
+#define __OTSERV_MAP_H__
 
+#include <queue>
 #include <bitset>
+#include <map>
+
+#include <boost/shared_ptr.hpp>
+using boost::shared_ptr;
 
 #include "position.h"
 #include "item.h"
+//#include "creature.h"
 #include "fileloader.h"
 
 #include "tools.h"
@@ -32,16 +39,18 @@
 class Creature;
 class Player;
 class Game;
-class Tile;
-class Map;
+struct FindPathParams;
 
 #define MAP_MAX_LAYERS 16
 
-struct FindPathParams;
-struct AStarNode {
+class Tile;
+class Map;
+
+struct AStarNode
+{
+	int32_t x, y;
 	AStarNode* parent;
-	int_fast32_t f;
-	uint16_t x, y;
+	int32_t f, g, h;
 };
 
 #define MAX_NODES 512
@@ -53,38 +62,46 @@ struct AStarNode {
 class AStarNodes
 {
 	public:
-		AStarNodes(uint32_t x, uint32_t y);
-		~AStarNodes() {}
+		AStarNodes();
+		~AStarNodes(){}
 
-		AStarNode* createOpenNode(AStarNode* parent, uint32_t x, uint32_t y, int_fast32_t f);
+		AStarNode* createOpenNode();
 		AStarNode* getBestNode();
 		void closeNode(AStarNode* node);
 		void openNode(AStarNode* node);
-		int_fast32_t getClosedNodes() const;
-		AStarNode* getNodeByPosition(uint32_t x, uint32_t y);
+		uint32_t countClosedNodes();
+		uint32_t countOpenNodes();
+		bool isInList(int32_t x, int32_t y);
+		AStarNode* getNodeInList(int32_t x, int32_t y);
 
-		static int_fast32_t getMapWalkCost(AStarNode* node, const Position& neighborPos);
-		static int_fast32_t getTileWalkCost(const Creature& creature, const Tile* tile);
+		int32_t getMapWalkCost(const Creature* creature, AStarNode* node,
+			const Tile* neighbourTile, const Position& neighbourPos);
+		static int32_t getTileWalkCost(const Creature* creature, const Tile* tile);
+		int32_t getEstimatedDistance(int32_t x, int32_t y, int32_t xGoal, int32_t yGoal);
 
 	private:
 		AStarNode nodes[MAX_NODES];
-		bool openNodes[MAX_NODES];
-		std::unordered_map<uint32_t, AStarNode*> nodeTable;
-		size_t curNode;
-		int_fast32_t closedNodes;
+		std::bitset<MAX_NODES> openNodes;
+		uint32_t curNode;
 };
 
-typedef std::unordered_set<Creature*> SpectatorVec;
-typedef std::map<Position, std::shared_ptr<SpectatorVec>> SpectatorCache;
+template<class T> class lessPointer : public std::binary_function<T*, T*, bool>
+{
+	public:
+		bool operator()(T*& t1, T*& t2) { return *t1 < *t2; }
+};
+
+typedef std::list<Creature*> SpectatorVec;
+typedef std::list<Player*> PlayerList;
+typedef std::map<Position, boost::shared_ptr<SpectatorVec> > SpectatorCache;
 
 #define FLOOR_BITS 3
 #define FLOOR_SIZE (1 << FLOOR_BITS)
 #define FLOOR_MASK (FLOOR_SIZE - 1)
 
-struct Floor {
-	Floor() : tiles() {}
-	~Floor();
-
+struct Floor
+{
+	Floor();
 	Tile* tiles[FLOOR_SIZE][FLOOR_SIZE];
 };
 
@@ -97,20 +114,18 @@ class QTreeNode
 		QTreeNode();
 		virtual ~QTreeNode();
 
-		bool isLeaf() const {
-			return m_isLeaf;
-		}
+		bool isLeaf(){return m_isLeaf;}
 		QTreeLeafNode* getLeaf(uint32_t x, uint32_t y);
 		static QTreeLeafNode* getLeafStatic(QTreeNode* root, uint32_t x, uint32_t y);
 		QTreeLeafNode* createLeaf(uint32_t x, uint32_t y, uint32_t level);
 
 	protected:
-		QTreeNode* m_child[4];
-
 		bool m_isLeaf;
+		QTreeNode* m_child[4];
 
 		friend class Map;
 };
+
 
 class QTreeLeafNode : public QTreeNode
 {
@@ -119,16 +134,10 @@ class QTreeLeafNode : public QTreeNode
 		virtual ~QTreeLeafNode();
 
 		Floor* createFloor(uint32_t z);
-		Floor* getFloor(uint16_t z) const {
-			return m_array[z];
-		}
+		Floor* getFloor(uint16_t z){return m_array[z];}
 
-		QTreeLeafNode* stepSouth() {
-			return m_leafS;
-		}
-		QTreeLeafNode* stepEast() {
-			return m_leafE;
-		}
+		QTreeLeafNode* stepSouth(){return m_leafS;}
+		QTreeLeafNode* stepEast(){return m_leafE;}
 
 		void addCreature(Creature* c);
 		void removeCreature(Creature* c);
@@ -139,7 +148,6 @@ class QTreeLeafNode : public QTreeNode
 		QTreeLeafNode* m_leafE;
 		Floor* m_array[MAP_MAX_LAYERS];
 		CreatureVector creature_list;
-		CreatureVector player_list;
 
 		friend class Map;
 		friend class QTreeNode;
@@ -179,19 +187,19 @@ class Map
 		  * \returns A pointer to that tile.
 		  */
 		Tile* getTile(int32_t x, int32_t y, int32_t z);
+		Tile* getTile(const Position& pos);
 
-		uint32_t clean() const;
+		uint32_t clean();
 
-		QTreeLeafNode* getLeaf(uint16_t x, uint16_t y) {
-			return root.getLeaf(x, y);
-		}
+		QTreeLeafNode* getLeaf(uint16_t x, uint16_t y){ return root.getLeaf(x, y);}
 
 		/**
 		  * Set a single tile.
 		  * \param a tile to set for the position
 		  */
 		void setTile(int32_t _x, int32_t _y, int32_t _z, Tile* newTile);
-		void setTile(const Position& pos, Tile* newTile) {
+		void setTile(const Position& pos, Tile* newTile)
+		{
 			setTile(pos.x, pos.y, pos.z, newTile);
 		}
 
@@ -208,7 +216,7 @@ class Map
 		  * Remove a creature from the map.
 		  * \param c Creature pointer to the creature to remove
 		  */
-		static bool removeCreature(Creature* c);
+		bool removeCreature(Creature* c);
 
 		/**
 		  * Checks if you can throw an object to that position
@@ -220,7 +228,7 @@ class Map
 		  *	\returns The result if you can throw there or not
 		  */
 		bool canThrowObjectTo(const Position& fromPos, const Position& toPos, bool checkLineOfSight = true,
-		                      int32_t rangex = Map::maxClientViewportX, int32_t rangey = Map::maxClientViewportY) const;
+			int32_t rangex = Map::maxClientViewportX, int32_t rangey = Map::maxClientViewportY);
 
 		/**
 		  * Checks if path is clear from fromPos to toPos
@@ -233,35 +241,39 @@ class Map
 		bool isSightClear(const Position& fromPos, const Position& toPos, bool floorCheck) const;
 		bool checkSightLine(const Position& fromPos, const Position& toPos) const;
 
-		const Tile* canWalkTo(const Creature& creature, const Position& pos);
+		const Tile* canWalkTo(const Creature* creature, const Position& pos);
 
-		bool getPathMatching(const Creature& creature, std::list<Direction>& dirList,
-		                     const FrozenPathingConditionCall& pathCondition, const FindPathParams& fpp);
+		/**
+		  * Get the path to a specific position on the map.
+		  * \param creature The creature that wants a path
+		  * \param destPos The position we want a path calculated to
+		  * \param listDir contains a list of directions to the destination
+		  * \param maxDist Maximum distance from our current position to search, default: -1 (no limit)
+		  * \returns returns true if a path was found
+		  */
+		bool getPathTo(const Creature* creature, const Position& destPos,
+			std::list<Direction>& listDir, int32_t maxDist = -1);
 
-		std::map<std::string, Position> waypoints;
+		bool getPathMatching(const Creature* creature, std::list<Direction>& dirList,
+			const FrozenPathingConditionCall& pathCondition, const FindPathParams& fpp);
 
 	protected:
-		SpectatorCache spectatorCache;
-		SpectatorCache playersSpectatorCache;
-
-		QTreeNode root;
-
+		uint32_t mapWidth, mapHeight;
 		std::string spawnfile;
 		std::string housefile;
-
-		uint32_t mapWidth, mapHeight;
+		SpectatorCache spectatorCache;
 
 		// Actually scans the map for spectators
-		void getSpectatorsInternal(SpectatorVec& list, const Position& centerPos,
-		                           int32_t minRangeX, int32_t maxRangeX,
-		                           int32_t minRangeY, int32_t maxRangeY,
-		                           int32_t minRangeZ, int32_t maxRangeZ, bool onlyPlayers);
+		void getSpectatorsInternal(SpectatorVec& list, const Position& centerPos, bool checkforduplicate,
+			int32_t minRangeX, int32_t maxRangeX,
+			int32_t minRangeY, int32_t maxRangeY,
+			int32_t minRangeZ, int32_t maxRangeZ);
 
 		// Use this when a custom spectator vector is needed, this support many
 		// more parameters than the heavily cached version below.
-		void getSpectators(SpectatorVec& list, const Position& centerPos, bool multifloor = false, bool onlyPlayers = false,
-		                   int32_t minRangeX = 0, int32_t maxRangeX = 0,
-		                   int32_t minRangeY = 0, int32_t maxRangeY = 0);
+		void getSpectators(SpectatorVec& list, const Position& centerPos, bool checkforduplicate = false, bool multifloor = false,
+			int32_t minRangeX = 0, int32_t maxRangeX = 0,
+			int32_t minRangeY = 0, int32_t maxRangeY = 0);
 		// The returned SpectatorVec is a temporary and should not be kept around
 		// Take special heed in that the vector will be destroyed if any function
 		// that calls clearSpectatorCache is called.
@@ -269,8 +281,33 @@ class Map
 
 		void clearSpectatorCache();
 
+		QTreeNode root;
+
+		struct RefreshBlock_t
+		{
+			TileItemVector list;
+			uint64_t lastRefresh;
+		};
+
+		typedef std::map<Tile*, RefreshBlock_t> TileMap;
+		TileMap refreshTileMap;
+
 		friend class Game;
+
 		friend class IOMap;
 };
+
+inline void QTreeLeafNode::addCreature(Creature* c)
+{
+	creature_list.push_back(c);
+}
+
+inline void QTreeLeafNode::removeCreature(Creature* c)
+{
+	CreatureVector::iterator iter = std::find(creature_list.begin(), creature_list.end(), c);
+	assert(iter != creature_list.end());
+	std::swap(*iter, creature_list.back());
+	creature_list.pop_back();
+}
 
 #endif

@@ -1,28 +1,30 @@
-/**
- * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2014  Mark Samman <mark.samman@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+//////////////////////////////////////////////////////////////////////
+// OpenTibia - an opensource roleplaying game
+//////////////////////////////////////////////////////////////////////
+//
+//////////////////////////////////////////////////////////////////////
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation,
+// Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+//////////////////////////////////////////////////////////////////////
 
-#ifndef FS_COMMANDS_H_C95A575CCADF434699D26CD042690970
-#define FS_COMMANDS_H_C95A575CCADF434699D26CD042690970
 
-#include "enums.h"
+#ifndef __OTSERV_COMMANDS_H__
+#define __OTSERV_COMMANDS_H__
 
-class Player;
+#include <string>
+#include <map>
+#include "creature.h"
 
 struct Command;
 struct s_defcommands;
@@ -31,40 +33,79 @@ class Commands
 {
 	public:
 		Commands();
-		~Commands();
 
 		bool loadFromXml();
 		bool reload();
 
-		bool exeCommand(Player& player, const std::string& cmd);
+		bool exeCommand(Creature* creature, const std::string& cmd);
 
 	protected:
+		bool loaded;
+
 		//commands
-		void reloadInfo(Player& player, const std::string& param);
-		void sellHouse(Player& player, const std::string& param);
-		void forceRaid(Player& player, const std::string& param);
+		void placeNpc(Player* player, const std::string& cmd, const std::string& param);
+		void placeMonster(Player* player, const std::string& cmd, const std::string& param);
+		void placeSummon(Player* player, const std::string& cmd, const std::string& param);
+		void broadcastMessage(Player* player, const std::string& cmd, const std::string& param);
+		void banPlayer(Player* player, const std::string& cmd, const std::string& param);
+		void teleportMasterPos(Player* player, const std::string& cmd, const std::string& param);
+		void teleportHere(Player* player, const std::string& cmd, const std::string& param);
+		void teleportToTown(Player* player, const std::string& cmd, const std::string& param);
+		void teleportTo(Player* player, const std::string& cmd, const std::string& param);
+		void createItemById(Player* player, const std::string& cmd, const std::string& param);
+		void createItemByName(Player* player, const std::string& cmd, const std::string& param);
+		void subtractMoney(Player* player, const std::string& cmd, const std::string& param);
+		void reloadInfo(Player* player, const std::string& cmd, const std::string& param);
+		void getInfo(Player* player, const std::string& cmd, const std::string& param);
+		void closeServer(Player* player, const std::string& cmd, const std::string& param);
+		void openServer(Player* player, const std::string& cmd, const std::string& param);
+		void teleportNTiles(Player* player, const std::string& cmd, const std::string& param);
+		void kickPlayer(Player* player, const std::string& cmd, const std::string& param);
+		void setHouseOwner(Player* player, const std::string& cmd, const std::string& param);
+		void sellHouse(Player* player, const std::string& cmd, const std::string& param);
+		void getHouse(Player* player, const std::string& cmd, const std::string& param);
+		void serverInfo(Player* player, const std::string& cmd, const std::string& param);
+		void changeFloor(Player* player, const std::string& cmd, const std::string& param);
+		void whoIsOnline(Player* player, const std::string& cmd, const std::string& param);
+		void showPosition(Player* player, const std::string& cmd, const std::string& param);
+		void removeThing(Player* player, const std::string& cmd, const std::string& param);
+		void buyHouse(Player* player, const std::string& cmd, const std::string& param);
+		void newType(Player* player, const std::string& cmd, const std::string& param);
+		void forceRaid(Player* player, const std::string& cmd, const std::string& param);
+		void addSkill(Player* player, const std::string& cmd, const std::string& param);
+		void playerKills(Player* player, const std::string& cmd, const std::string& param);
+		void ban(Player* player, const std::string& cmd, const std::string& param);
+		void unban(Player* player, const std::string& cmd, const std::string& param);
+		void joinGuild(Player* player, const std::string& cmd, const std::string& param);
+		void createGuild(Player* player, const std::string& cmd, const std::string& param);
+		void clean(Player* player, const std::string& cmd, const std::string& param);
+#ifdef __ENABLE_SERVER_DIAGNOSTIC__
+		void serverDiag(Player* player, const std::string& cmd, const std::string& param);
+#endif
+		void ghost(Player* player, const std::string& cmd, const std::string& param);
+		void multiClientCheck(Player* player, const std::string& cmd, const std::string& param);
 
 		//table of commands
 		static s_defcommands defined_commands[];
 
-		std::map<std::string, Command*> commandMap;
-		bool loaded;
+		typedef std::map<std::string, Command*> CommandMap;
+		CommandMap commandMap;
 };
 
-typedef void (Commands::*CommandFunc)(Player&, const std::string&);
+typedef void (Commands::*CommandFunc)(Player*, const std::string&, const std::string&);
 
-struct Command {
+struct Command
+{
 	CommandFunc f;
-	uint32_t groupId;
+	int32_t groupId;
 	AccountType_t accountType;
 	bool loadedGroupId;
 	bool loadedAccountType;
-	bool logged;
-	bool loadedLogging;
 };
 
-struct s_defcommands {
-	const char* name;
+struct s_defcommands
+{
+	const char *name;
 	CommandFunc f;
 };
 
